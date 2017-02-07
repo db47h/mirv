@@ -25,6 +25,7 @@ package sys
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/db47h/mirv"
 )
@@ -75,7 +76,7 @@ func (n nilMemory) Page(addr, size mirv.Address) mirv.Memory { return n }
 // but cannot cross page boundaries. i.e. with a page size of 4096 bytes, trying
 // to read a uint64 at address 4095 will result in a bus error. This should be
 // of no consequence where the simulated CPU does not support unaligned
-// read/writes, but extra steps must be taken on others.
+// read/writes, but extra steps must be taken with others.
 //
 type Bus struct {
 	sz   mirv.Address // page size
@@ -357,4 +358,46 @@ func (b *Bus) Write64BE(addr mirv.Address, v uint64) error {
 	}
 	binary.BigEndian.PutUint64(d, v)
 	return nil
+}
+
+type busWriter struct {
+	addr mirv.Address
+	b    *Bus
+}
+
+func (w *busWriter) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		w.addr = mirv.Address(offset)
+	case io.SeekCurrent:
+		w.addr += mirv.Address(offset)
+	case io.SeekEnd:
+		w.addr = ^mirv.Address(0) - mirv.Address(offset) + 1 // TODO: probably wrong
+	}
+	return int64(w.addr), nil
+}
+
+func (w *busWriter) Write(p []byte) (n int, err error) {
+	var page []uint8
+	var pp int
+	for _, b := range p {
+		if pp >= len(page) {
+			page = w.b.Memory(w.addr).Get(w.addr & w.b.pom)
+			pp = 0
+			if len(page) == 0 {
+				return n, io.EOF
+			}
+		}
+		page[pp] = b
+		pp++
+		w.addr++
+		n++
+	}
+	return n, nil
+}
+
+// WriteSeeker returns a WriteSeeker to the addressable memory.
+//
+func (b *Bus) WriteSeeker() io.WriteSeeker {
+	return &busWriter{0, b}
 }
