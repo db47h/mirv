@@ -20,6 +20,12 @@
 
 // Package elf provides utility functions to load ELF files.
 //
+// TODO:
+//
+//	- rename this package to something more generic and related to image loading.
+//	- add a loadRaw function
+//	- kernel loading
+//
 package elf
 
 import (
@@ -29,6 +35,7 @@ import (
 	"strconv"
 
 	"github.com/db47h/mirv"
+	"github.com/db47h/mirv/mem"
 	"github.com/db47h/mirv/sys"
 )
 
@@ -45,18 +52,18 @@ type Machine uint16
 
 // Class values.
 const (
-	ClassNone Class = iota /* Unknown class. */
-	Class32                /* 32-bit architecture. */
-	Class64                /* 64-bit architecture. */
+	ClassNone Class = iota // Unknown class.
+	Class32                // 32-bit architecture.
+	Class64                // 64-bit architecture.
 )
 
 //go:generate stringer -type Data "$GOFILE"
 
 // Data values.
 const (
-	DataNone   Data = iota /* Unknown data format. */
-	DataLittle             /* 2's complement little-endian. */
-	DataBig                /* 2's complement big-endian. */
+	DataNone   Data = iota // Unknown data format.
+	DataLittle             // 2's complement little-endian.
+	DataBig                // 2's complement big-endian.
 )
 
 // Supported Machine IDs
@@ -93,23 +100,59 @@ type Arch struct {
 	Data    Data
 }
 
-type zeroReader uint64
+type zeroReader struct{}
 
-func (z *zeroReader) Read(p []byte) (n int, err error) {
-	if *z == 0 {
-		return 0, io.EOF
-	}
-	var i int
-	for i = 0; i < len(p) && *z != 0; i++ {
+func (zeroReader) Read(p []byte) (n int, err error) {
+	for i := range p {
 		p[i] = 0
-		*z--
 	}
-	return i, nil
+	return len(p), nil
 }
 
-// Load loads an ELF file and returns the architecture, start address and error if any.
+// alloc allocates and maps memory @addr with the given size.
+// it allocates only the necessary pages.
 //
-func Load(name string, bus *sys.Bus) (arch Arch, entry mirv.Address, err error) {
+func alloc(b *sys.Bus, addr, size mirv.Address) {
+	ps := b.PageSize()
+	pm := ps - 1
+	// adjust addr & size
+	size += addr & pm
+	size = (size + pm) & ^pm
+	addr &= ^pm
+	var start, cur, end mirv.Address = 0, addr, addr + size
+
+	// Try to allocate in large chunks instead of allocating page by page.
+	for cur != end {
+		// look for first unmapped page
+		for start = cur; b.Memory(start).Size() != 0 && start != end; start += ps {
+		}
+		if start == end {
+			break
+		}
+		// look for next mapped page
+		for cur = start + ps; b.Memory(cur).Size() == 0 && cur != end; cur += ps {
+		}
+		b.Map(start, mem.New(cur-start))
+	}
+}
+
+// Load loads an ELF file and returns the architecture, start address and error
+// if any. If the autoAlloc parameter is true, guest memory will automatically
+// be allocated and mapped in the guest's address space.
+//
+// Note that there is no memory access control mechanism in the current version.
+// However this sill be implemented in future versions and auto-allocation will
+// also auto-configure memory access control for all loaded segments (even for
+// memory pages allocated and mapped manually before calling Load).
+//
+// The loader is rather primitive and has some limitations:
+//
+// Panics on files with program segments larger or equal to 0x8000000000000000
+// bytes.
+//
+// Only statically linked executables are supported.
+//
+func Load(name string, bus *sys.Bus, autoAlloc bool) (arch Arch, entry mirv.Address, err error) {
 	f, err := self.Open(name)
 	if err != nil {
 		return Arch{}, 0, err
@@ -123,27 +166,32 @@ func Load(name string, bus *sys.Bus) (arch Arch, entry mirv.Address, err error) 
 		Data:    Data(f.Data),
 	}
 
+	if f.Type != self.ET_EXEC {
+		return arch, entry, fmt.Errorf("unsupported elf file type %v", f.Type)
+	}
+
 	for _, p := range f.Progs {
 		if p.Type != self.PT_LOAD {
 			return arch, entry, fmt.Errorf("unsupported prog type %v", p.Type)
 		}
 		r := p.Open()
-		w := bus.WriteSeeker()
-		_, err := w.Seek(int64(p.Paddr), io.SeekStart) // TODO: int64(p.Paddr) may not work
+		n := int64(p.Filesz)
+		if n < 0 || int64(p.Memsz) < 0 {
+			panic("ELF file too large")
+		}
+		if autoAlloc {
+			alloc(bus, mirv.Address(p.Paddr), mirv.Address(p.Memsz))
+		}
+		w := bus.Writer(mirv.Address(p.Paddr))
+		n, err := io.CopyN(w, r, int64(p.Filesz))
 		if err != nil {
 			return arch, entry, err
 		}
-		n, err := io.Copy(w, r)
-		if err != nil {
-			return arch, entry, err
-		}
-		if n < 0 {
-			panic("Negative write count")
-		}
-		// zero-fill
+		// zero-fill the gap between p.Filesz and p.Memsz
+		// This is to conform to the ELF spec. As a side effect, this clears the
+		// BSS, but this should not be taken for granted.
 		if uint64(n) < p.Memsz {
-			z := zeroReader(p.Memsz - uint64(n))
-			_, err = io.Copy(w, &z)
+			_, err = io.CopyN(w, zeroReader{}, int64(p.Memsz)-n)
 			if err != nil {
 				return arch, entry, err
 			}

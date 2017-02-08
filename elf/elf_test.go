@@ -4,21 +4,19 @@ import (
 	"testing"
 
 	"github.com/db47h/mirv/elf"
-	"github.com/db47h/mirv/mem"
 	"github.com/db47h/mirv/sys"
 )
 
 func TestLoad(t *testing.T) {
 	var err error
 	b := sys.NewBus(1<<12, 1<<13)
-	r := mem.New(1 << 25)
-	b.Map(0, r)
+	// Do not pre-allocate memory. The ELF loader will do it for us.
 
-	arch, entry, err := elf.Load("/home/denis/devel/hello", b)
+	arch, entry, err := elf.Load("testdata/hello.riscv", b, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("Machine: %v, entry: 0x%X", arch, entry)
+	// t.Logf("Machine: %v, entry: 0x%X", arch, entry)
 	if arch.Data == elf.DataNone {
 		t.Fatalf("Unsupported byte order %v", arch.Data)
 	}
@@ -44,5 +42,8 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read memory @ 0x%X: %v", entry, err)
 	}
-	t.Logf("Data @ 0x%X: 0x%X", entry, v)
+	// t.Logf("Data @ 0x%X: 0x%X", entry, v)
+	if v != 0x5197 {
+		t.Fatalf("Value @ entry point = 0x%X, != 0x%X", v, 0x5197)
+	}
 }

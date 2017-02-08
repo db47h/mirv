@@ -365,17 +365,17 @@ type busWriter struct {
 	b    *Bus
 }
 
-func (w *busWriter) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case io.SeekStart:
-		w.addr = mirv.Address(offset)
-	case io.SeekCurrent:
-		w.addr += mirv.Address(offset)
-	case io.SeekEnd:
-		w.addr = ^mirv.Address(0) - mirv.Address(offset) + 1 // TODO: probably wrong
-	}
-	return int64(w.addr), nil
-}
+// func (w *busWriter) Seek(offset int64, whence int) (int64, error) {
+// 	switch whence {
+// 	case io.SeekStart:
+// 		w.addr = mirv.Address(offset)
+// 	case io.SeekCurrent:
+// 		w.addr += mirv.Address(offset)
+// 	case io.SeekEnd:
+// 		w.addr = ^mirv.Address(0) - mirv.Address(offset) + 1 // TODO: probably wrong
+// 	}
+// 	return int64(w.addr), nil
+// }
 
 func (w *busWriter) Write(p []byte) (n int, err error) {
 	var page []uint8
@@ -396,8 +396,8 @@ func (w *busWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-// WriteSeeker returns a WriteSeeker to the addressable memory.
+// Writer returns an io.Writer to the addressable memory.
 //
-func (b *Bus) WriteSeeker() io.WriteSeeker {
-	return &busWriter{0, b}
+func (b *Bus) Writer(addr mirv.Address) io.Writer {
+	return &busWriter{addr, b}
 }
