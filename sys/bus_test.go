@@ -15,7 +15,7 @@ func TestBus_Map(t *testing.T) {
 	r := mem.New(psz * 2)
 	const ba = 4242 << 20
 	// 12 bits page size + 8 bits cache size => 20 bits addressable through cache
-	b.Map(ba, r)
+	b.Map(ba, r, MemRAM)
 	// check tag for this address
 	if tag := b.tag(ba); tag != ba>>12 {
 		t.Fatalf("Wrong tag value for base address 0x%d. Got 0x%x, expected 0x%d.", ba, tag, ba>>12)
@@ -68,8 +68,8 @@ func TestBus_Map(t *testing.T) {
 func TestBus_Map_overlap(t *testing.T) {
 	b := NewBus(psz, 1<<8)
 	r := mem.New(psz * 2)
-	b.Map(0, r)
-	b.Map(psz*2, r) // map again at a different memory location
+	b.Map(0, r, MemRAM)
+	b.Map(psz*2, r, MemRAM) // map again at a different memory location
 	for i := mirv.Address(0); i < psz*2; i += 8 {
 		err := b.Write64LE(i, uint64(i))
 		if err != nil {
@@ -93,6 +93,26 @@ func TestBus_Map_overlap(t *testing.T) {
 		if v != uint64(i) {
 			t.Fatalf("At address 0x%x, expected %d, got %d", i+psz*2, i, v)
 		}
+	}
+}
+
+func TestBus_RAM(t *testing.T) {
+	b := NewBus(1<<12, 8)
+	r0 := mem.New((1 << 12) << 2)
+	r1 := mem.New((1 << 12) << 8)
+	r2 := mem.New((1 << 12) << 1)
+	b.Map(0x00001000, r0, MemIO)
+	b.Map(0x40000000, r1, MemRAM)
+	b.Map(0x10000000, r0, MemIO)
+	b.Map(0x00005000, r2, MemRAM)
+	b.Map(0x80000000, r0, MemIO)
+	l, h := b.MemRange(MemRAM)
+	if l != 0x5000 && h != 0x40000000+0x10000-1 {
+		t.Fatalf("Got 0x%X, 0x%X, expected 0x%X, 0x%X", l, h, 0x5000, 0x40000000+0x10000-1)
+	}
+	l, h = b.MemRange(MemIO)
+	if l != 0x1000 && h != 0x80000000+0x4000-1 {
+		t.Fatalf("Got 0x%X, 0x%X, expected 0x%X, 0x%X", l, h, 0x1000, 0x80000000+0x4000-1)
 	}
 }
 
@@ -124,7 +144,7 @@ func TestBigEndian(t *testing.T) {
 	b := NewBus(psz, 1<<10)
 	r := mem.New(2*psz + 2)
 
-	b.Map(psz, r) // map after the first page
+	b.Map(psz, r, MemRAM) // map after the first page
 
 	// make sure that we have two pages mapped
 	if _, err := b.Read8(0); err == nil {
@@ -187,7 +207,7 @@ func TestLittleEndian(t *testing.T) {
 	b := NewBus(psz, 1<<10)
 	r := mem.New(2*psz + 2)
 
-	b.Map(psz, r) // map after the first page
+	b.Map(psz, r, MemRAM) // map after the first page
 
 	// make sure that we have two pages mapped
 	if _, err := b.Read8(0); err == nil {

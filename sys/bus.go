@@ -61,6 +61,23 @@ type cacheEntry struct {
 	m   mirv.Memory
 }
 
+// MemType indicates the type of mapped memory.
+//
+type MemType uint16
+
+// Memory type values.
+//
+const (
+	MemRAM MemType = iota
+	MemIO
+)
+
+// wrapper to track memory type
+type typedMem struct {
+	m mirv.Memory
+	t MemType
+}
+
 // nilMemory dummy mirv.Memory implementation that returns bus error
 type nilMemory struct{}
 
@@ -84,7 +101,7 @@ type Bus struct {
 	pom  mirv.Address // page offset mask
 	pnm  tag          // page number mask
 
-	pages map[tag]mirv.Memory
+	pages map[tag]*typedMem
 	cache []cacheEntry
 }
 
@@ -130,7 +147,7 @@ func NewBus(pageSize mirv.Address, cacheSize uint) *Bus {
 		bits:  b,
 		pom:   pageSize - 1,
 		pnm:   tag(cacheSize) - 1,
-		pages: make(map[tag]mirv.Memory),
+		pages: make(map[tag]*typedMem),
 		cache: make([]cacheEntry, cacheSize),
 	}
 
@@ -157,18 +174,21 @@ func (b *Bus) PageSize() mirv.Address {
 //
 // Use the Memory method to check if a given address is mapped.
 //
-func (b *Bus) Map(addr mirv.Address, m mirv.Memory) {
+// The memType parameter does not affect the page mapping in any way. It only
+// serves as a differentiator for the MemRange method.
+//
+func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType MemType) {
 	if addr&b.pom != 0 {
 		panic("Address must be page-aligned")
 	}
 
-	pages := m.Size() / b.sz
+	pages := m.Size() >> b.bits
 	for i, pa := mirv.Address(0), addr; i < pages; i++ {
 		tag := b.tag(pa)
 		if b.pages[tag] != nil {
 			panic("Address already mapped")
 		}
-		b.pages[tag] = m.Page(pa-addr, b.sz)
+		b.pages[tag] = &typedMem{m: m.Page(pa-addr, b.sz), t: memType}
 		n := pa + b.sz
 		if n <= addr {
 			panic("Page mapping past end of addressable memory.")
@@ -190,6 +210,27 @@ func (b *Bus) Unmap(addr mirv.Address, n int) {
 	}
 }
 
+// MemRange reports the lowest and highest available addresses of the given memory
+// type. It doesn't take into account contiguity of mapped RAM pages. i.e. there
+// may be unmapped pages between low and high.
+//
+func (b *Bus) MemRange(t MemType) (low, high mirv.Address) {
+	low = ^mirv.Address(0)
+	for tag, m := range b.pages {
+		if m.t != t {
+			continue
+		}
+		tag := mirv.Address(tag << b.bits)
+		if tag < low {
+			low = tag
+		}
+		if end := tag + b.sz - 1; end > high {
+			high = end
+		}
+	}
+	return low, high
+}
+
 // Memory returns the Memory interface mapped to address addr. If the address is
 // not mapped, it returns a 0 sized Memory interface:
 //
@@ -207,6 +248,7 @@ func (b *Bus) Memory(addr mirv.Address) mirv.Memory {
 		return e.m
 	}
 	if m := b.pages[tag]; m != nil {
+		m := m.m
 		b.cache[i].tag, b.cache[i].m = tag, m
 		return m
 	}

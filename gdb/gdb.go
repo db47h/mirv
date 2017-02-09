@@ -18,7 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package gdb provides a gdb remote agent.
+// Package gdb provides a gdb remote agent for guest debugging.
+//
 package gdb
 
 import (

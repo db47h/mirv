@@ -132,7 +132,7 @@ func alloc(b *sys.Bus, addr, size mirv.Address) {
 		// look for next mapped page
 		for cur = start + ps; b.Memory(cur).Size() == 0 && cur != end; cur += ps {
 		}
-		b.Map(start, mem.New(cur-start))
+		b.Map(start, mem.New(cur-start), sys.MemRAM)
 	}
 }
 

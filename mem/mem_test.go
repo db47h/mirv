@@ -95,7 +95,7 @@ const psz = 1 << 12
 func BenchmarkBus_Write64(b *testing.B) {
 	r := mem.New(psz)
 	bus := sys.NewBus(psz, 1<<8)
-	bus.Map(0, r)
+	bus.Map(0, r, sys.MemRAM)
 	for i := 0; i < b.N; i++ {
 		if err := bus.Write64LE(0, 12345); err != nil {
 			b.Fatal(err)
