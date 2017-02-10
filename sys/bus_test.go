@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"fmt"
 	"testing"
 	"testing/quick"
 
@@ -96,24 +97,34 @@ func TestBus_Map_overlap(t *testing.T) {
 	}
 }
 
-func TestBus_RAM(t *testing.T) {
-	b := NewBus(1<<12, 8)
-	r0 := mem.New((1 << 12) << 2)
-	r1 := mem.New((1 << 12) << 8)
-	r2 := mem.New((1 << 12) << 1)
-	b.Map(0x00001000, r0, MemIO)
-	b.Map(0x40000000, r1, MemRAM)
-	b.Map(0x10000000, r0, MemIO)
+func ExampleBus_Range() {
+	var pageSize mirv.Address = 0x1000 // 4096
+	b := NewBus(pageSize, 8)
+	r256 := mem.New(pageSize * 256)
+	r2 := mem.New(pageSize * 2)
+	b.Map(0x40000000, r256, MemRAM)
 	b.Map(0x00005000, r2, MemRAM)
-	b.Map(0x80000000, r0, MemIO)
-	l, h := b.MemRange(MemRAM)
-	if l != 0x5000 && h != 0x40000000+0x10000-1 {
-		t.Fatalf("Got 0x%X, 0x%X, expected 0x%X, 0x%X", l, h, 0x5000, 0x40000000+0x10000-1)
-	}
-	l, h = b.MemRange(MemIO)
-	if l != 0x1000 && h != 0x80000000+0x4000-1 {
-		t.Fatalf("Got 0x%X, 0x%X, expected 0x%X, 0x%X", l, h, 0x1000, 0x80000000+0x4000-1)
-	}
+	rIO := mem.New(pageSize * 4)
+	b.Map(0x10000000, rIO, MemIO)
+	b.Map(0x00001000, rIO, MemIO)
+	b.Map(0x80000000, rIO, MemIO)
+	l, h := b.MappedRange(MemRAM)
+	fmt.Printf("RAM: %X - %X\n", l, h)
+	l, h = b.MappedRange(MemIO)
+	fmt.Printf("IO : %X - %X\n", l, h)
+
+	// now map the last 2 pages
+	addr := 0 - pageSize*2
+	b.Map(addr, r2, MemRAM)
+	// here MemRange will return a high value of 0
+	// because of 2 complement arithmetic.
+	l, h = b.MappedRange(MemRAM)
+	fmt.Printf("RAM: %X - %X\n", l, h)
+
+	// Output:
+	// RAM: 0x5000 0x40100000
+	// IO : 0x1000 0x80004000
+	// RAM: 0x5000 0
 }
 
 type testData struct {

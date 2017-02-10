@@ -191,6 +191,10 @@ func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType MemType) {
 		b.pages[tag] = &typedMem{m: m.Page(pa-addr, b.sz), t: memType}
 		n := pa + b.sz
 		if n <= addr {
+			if i == pages-1 {
+				// we've just mapped the last page, and nothing more to mapm all is good.
+				break
+			}
 			panic("Page mapping past end of addressable memory.")
 		}
 		pa = n
@@ -210,11 +214,17 @@ func (b *Bus) Unmap(addr mirv.Address, n int) {
 	}
 }
 
-// MemRange reports the lowest and highest available addresses of the given memory
-// type. It doesn't take into account contiguity of mapped RAM pages. i.e. there
-// may be unmapped pages between low and high.
+// MappedRange reports the largest addressable range [low, high) for the given
+// memory type. i.e. only the memory addresses low and high-1 are guaranteed to
+// be mapped, but there may be unmapped pages in between.
 //
-func (b *Bus) MemRange(t MemType) (low, high mirv.Address) {
+// As a result of 2-complement arithmetic, the high address may be 0 if the
+// highest memory address is mapped.
+//
+// The purpose of this function is to ease setup of some CPUs that default some registers
+// to start or end of memory.
+//
+func (b *Bus) MappedRange(t MemType) (low, high mirv.Address) {
 	low = ^mirv.Address(0)
 	for tag, m := range b.pages {
 		if m.t != t {
@@ -228,7 +238,7 @@ func (b *Bus) MemRange(t MemType) (low, high mirv.Address) {
 			high = end
 		}
 	}
-	return low, high
+	return low, high + 1
 }
 
 // Memory returns the Memory interface mapped to address addr. If the address is
