@@ -39,7 +39,7 @@ const (
 	opEmulate    opcode = 0x20
 	opPopPC      opcode = 0x04
 	opLoad       opcode = 0x08
-	opStore      opcode = 0xC0
+	opStore      opcode = 0x0C
 	opPushSP     opcode = 0x02
 	opPopSP      opcode = 0x0D
 	opAdd        opcode = 0x05
@@ -49,6 +49,7 @@ const (
 	opFlip       opcode = 0x0A
 	opNop        opcode = 0x0B
 
+	opSwap    opcode = 40
 	opSyscall opcode = 60
 )
 
@@ -84,8 +85,8 @@ func New(b *sys.Bus) cpu.Interface {
 //
 func (s *State) Reset() {
 	s.pc = 0
-	_, e := s.b.MemRange(sys.MemRAM)
-	s.sp = e + 1
+	_, e := s.b.MappedRange(sys.MemRAM)
+	s.sp = e
 	s.idim = false
 	s.halted = false
 }
@@ -96,18 +97,30 @@ func (s *State) SetPC(addr mirv.Address) {
 	s.pc = addr
 }
 
+// PC returns the current program counter.
+//
+func (s *State) PC() mirv.Address {
+	return s.pc
+}
+
+// SP returns the current stack pointer.
+//
+func (s *State) SP() mirv.Address {
+	return s.sp
+}
+
 func (s *State) tos() uint32 {
 	return s.read32(s.sp)
 }
 
 func (s *State) push(v uint32) {
-	s.sp--
+	s.sp -= 4
 	s.write32(s.sp, v)
 }
 
 func (s *State) pop() uint32 {
 	v := s.read32(s.sp)
-	s.sp++
+	s.sp += 4
 	return v
 }
 
@@ -138,11 +151,13 @@ func (s *State) syscall() {
 
 }
 
-// Step steps the simulation forward n cycles.
+// Step steps the simulation forward n cycles. Returns how many cycles where
+// performed.
 //
-func (s *State) Step(n uint64) {
+func (s *State) Step(n uint64) uint64 {
+	var cycles = n
 
-	for cycles := n; cycles > 0 && !s.halted; cycles-- {
+	for ; cycles > 0 && !s.halted; cycles-- {
 		var incPC = true
 
 		if !s.idim {
@@ -154,13 +169,10 @@ func (s *State) Step(n uint64) {
 
 		// Immediate
 		if insn&opIMMask == opIM {
-			var tos uint32
 			if s.idim {
-				tos = s.tos() << 7
-				s.write32(s.sp, tos|uint32(insn&0x7F))
+				s.write32(s.sp, (s.tos()<<7)|uint32(insn&0x7F))
 			} else {
-				v := int32(int8(insn&0x7F) << 1 >> 1) // sign extend
-				s.push(uint32(v))
+				s.push(uint32(int32(insn) << 25 >> 25))
 				s.idim = true
 			}
 			s.pc++
@@ -172,7 +184,7 @@ func (s *State) Step(n uint64) {
 
 		switch insn {
 		case opBreakPoint:
-			panic("breakpoint")
+			return n - cycles
 		case opPopPC:
 			// Pops address off stack and sets PC
 			s.pc = mirv.Address(s.pop())
@@ -183,7 +195,7 @@ func (s *State) Step(n uint64) {
 			s.write32(s.sp, s.read32(mirv.Address(addr)))
 		case opStore:
 			// Pops address, then value from stack and stores the value into the memory location of the address.
-			addr := s.pop() ^ uint32(0x03)
+			addr := s.pop() & ^uint32(0x03)
 			s.write32(mirv.Address(addr), s.pop())
 		case opPushSP:
 			// Pushes stack pointer.
@@ -216,35 +228,41 @@ func (s *State) Step(n uint64) {
 			s.write32(s.sp, v)
 		case opNop:
 
-		// emulated insns
+		// implementation of emulated instructions
+		case opSwap:
+			v := s.read32(s.sp)
+			s.write32(s.sp, (v<<16)|(v>>16))
 		case opSyscall:
 			s.syscall()
 
 		default:
 			switch {
-			// ops with embedded arg
+			// ops with embedded argument
 			case insn&opStoreSPMask == opStoreSP:
 				// Pop value off stack and store it in the SP+xxxxx*4 memory location, where xxxxx is a positive integer.
-				arg := mirv.Address(insn&^opStoreSPMask) ^ 0x10
+				// The actual memory location is xor'ed with 0x10.
+				arg := mirv.Address(insn-opStoreSP) ^ 0x10
 				addr := s.sp + (arg * 4)
 				s.write32(addr, s.pop())
 			case insn&opLoadSPMask == opLoadSP:
 				// Push value of memory location SP+xxxxx*4, where xxxxx is a positive integer, onto stack.
-				arg := mirv.Address(insn&^opLoadSPMask) ^ 0x10
+				arg := mirv.Address(insn-opLoadSP) ^ 0x10
 				addr := s.sp + (arg * 4)
 				s.push(s.read32(addr))
-				_ = arg
 			case insn&opAddSPMask == opAddSP:
-				arg := insn &^ opAddSPMask
-				_ = arg
+				addr := s.sp + mirv.Address(insn-opAddSP)*4
+				s.write32(s.sp, s.read32(s.sp)+s.read32(addr))
 			case insn&opEmulateMask == opEmulate:
-				arg := insn &^ opEmulateMask
-				_ = arg
+				s.push(uint32(s.pc) + 1)
+				s.pc = mirv.Address(insn-opEmulate) * 32
+				incPC = false
 			}
 		}
 
 		if incPC {
 			s.pc++
 		}
+
 	}
+	return n - cycles
 }

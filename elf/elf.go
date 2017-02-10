@@ -152,7 +152,7 @@ func alloc(b *sys.Bus, addr, size mirv.Address) {
 //
 // Only statically linked executables are supported.
 //
-func Load(name string, bus *sys.Bus, autoAlloc bool) (arch Arch, entry mirv.Address, err error) {
+func Load(bus *sys.Bus, name string, autoAlloc bool) (arch Arch, entry mirv.Address, err error) {
 	f, err := self.Open(name)
 	if err != nil {
 		return Arch{}, 0, err

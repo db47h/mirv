@@ -175,7 +175,7 @@ func (b *Bus) PageSize() mirv.Address {
 // Use the Memory method to check if a given address is mapped.
 //
 // The memType parameter does not affect the page mapping in any way. It only
-// serves as a differentiator for the MemRange method.
+// serves as a differentiator for the MappedRange method.
 //
 func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType MemType) {
 	if addr&b.pom != 0 {

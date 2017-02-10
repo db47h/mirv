@@ -12,7 +12,7 @@ func TestLoad(t *testing.T) {
 	b := sys.NewBus(1<<12, 1<<13)
 	// Do not pre-allocate memory. The ELF loader will do it for us.
 
-	arch, entry, err := elf.Load("testdata/hello.riscv", b, true)
+	arch, entry, err := elf.Load(b, "testdata/hello.riscv", true)
 	if err != nil {
 		t.Fatal(err)
 	}
