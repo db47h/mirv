@@ -1,10 +1,6 @@
-#include <stdio.h>
-
-#define ZPU_ID 0
-
-int bss_data[1024];
+#include <unistd.h>
 
 int main(void) {
-	puts("Hello, World!");
+	write(1, "Hello, World!", 13);
 	return 0;
 }

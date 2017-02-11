@@ -180,8 +180,8 @@ func TestNew(t *testing.T) {
 	time.Sleep(2 * time.Second / (19200 / 8))
 	close(uartDone)
 
-	if string(buf) != "Hello, World!\r\n" {
-		t.Fatalf("Expected \"Hello, World!\\r\\n\", got %q", buf)
+	if string(buf) != "Hello, World!" {
+		t.Fatalf("Expected \"Hello, World!\", got %q", buf)
 	}
 	t.Logf("ZPU says: %s", buf)
 }
