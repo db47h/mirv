@@ -2,8 +2,8 @@ package zpu_test
 
 import (
 	"fmt"
-	"log"
 	"testing"
+	"time"
 
 	"github.com/db47h/mirv"
 	"github.com/db47h/mirv/cpu/zpu"
@@ -118,9 +118,9 @@ func TestISA(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	b := sys.NewBus(1<<12, 1<<8)
-	b.Map(0, mem.New(1<<16), sys.MemRAM)
+	b.Map(0, mem.New(1<<16), sys.MemRAM) // 64KiB
 	b.Map(0x080A0000, mem.New(1<<12), sys.MemIO)
-	// b.Map(1<<24, mem.New(1<<12), sys.MemIO) // cheat for debugging SP
+
 	arch, entry, err := elf.Load(b, "testdata/hello.elf", false)
 	if err != nil {
 		t.Fatal(err)
@@ -131,19 +131,57 @@ func TestNew(t *testing.T) {
 	z := zpu.New(b)
 	z.Reset()
 	z.SetPC(entry)
-	t.Logf("PC:%08X SP:%08X", z.PC(), z.SP())
 
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("ZPU panicked @ %08X", z.PC())
+			t.Logf("ZPU panic @ %08X", z.PC())
 			t.Fatal(err)
 		}
 	}()
 
-	// TODO: need a working UART.
+	// Dummy UART. The newlib implementation does not use IRQs
+	// and our bus implementation dos not enable read/write hijacking,
+	// so we need to do something bad. TODO: FIX THIS!
+	var buf []byte
+	var uartDone = make(chan struct{})
+	b.Write32BE(0x080A000C, 0x100) // tx ready
 
-	b.Write32BE(0x080A000C, 0x100) // buf ready
-	z.Step(100000)
-	v, _ := b.Read32BE(0x080A000C)
-	t.Logf("UART[0] = %08X", v)
+	go func(done <-chan struct{}) {
+		// we start with 0x080A000C == 0x100 (tx ready)
+		// outbyte(byteVal) does a Write32BE(0x080A000C, byteVal)
+		t := time.NewTicker(time.Second / (19200 / 8))
+		for {
+			select {
+			case <-t.C:
+				c, _ := b.Read16BE(0x080A000C + 2)
+				if c&0x100 != 0 {
+					// nothing written skip this tick
+					continue
+				}
+				// read until we get the same value twice
+				for cc, _ := b.Read16BE(0x080A000C + 2); cc != c; c = cc {
+				}
+				// xmit
+				buf = append(buf, byte(c))
+				// clear byte
+				_ = b.Write8(0x080A000C+3, 0)
+				// tx ready
+				_ = b.Write8(0x080A000C+2, 1)
+			case <-done:
+				t.Stop()
+				return
+			}
+		}
+	}(uartDone)
+
+	z.Step(2000000)
+
+	// wait for the UART to read the last byte
+	time.Sleep(2 * time.Second / (19200 / 8))
+	close(uartDone)
+
+	if string(buf) != "Hello, World!\r\n" {
+		t.Fatalf("Expected \"Hello, World!\\r\\n\", got %q", buf)
+	}
+	t.Logf("ZPU says: %s", buf)
 }
