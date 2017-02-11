@@ -23,8 +23,34 @@
 //
 package mirv
 
+import "fmt"
+
 // Address is the guest address type.
 type Address uint
+
+//go:generate stringer -type busOp "$GOFILE"
+type busOp int
+
+const (
+	opRead busOp = iota
+	opWrite
+)
+
+// ErrBus wraps a bus error.
+//
+type ErrBus struct {
+	op   busOp
+	sz   uint8
+	addr Address
+}
+
+func errBus(op busOp, size uint8, addr Address) *ErrBus {
+	return &ErrBus{op: op, sz: size, addr: addr}
+}
+
+func (e *ErrBus) Error() string {
+	return fmt.Sprintf("bus error: %v/%d @ address %x", e.op, e.sz, e.addr)
+}
 
 // Memory is implemented by types exposing a memory-like interface.
 //
@@ -45,11 +71,46 @@ type Address uint
 type Memory interface {
 	// Size in bytes of the memory block.
 	Size() Address
+	Page(Address, Address) Memory
 
-	// returns the raw memory starting at address addr.
-	Get(addr Address) []uint8
+	Read8(Address) (uint8, error)
+	Write8(Address, uint8) error
 
-	// returns a new memory interface to a sub-page of the given size starting at addr.
-	// If Size() is smaller or equal than size, this method may return its receiver.
-	Page(addr, size Address) Memory
+	Read16LE(Address) (uint16, error)
+	Write16LE(Address, uint16) error
+	Read32LE(Address) (uint32, error)
+	Write32LE(Address, uint32) error
+	Read64LE(Address) (uint64, error)
+	Write64LE(Address, uint64) error
+
+	Read16BE(Address) (uint16, error)
+	Write16BE(Address, uint16) error
+	Read32BE(Address) (uint32, error)
+	Write32BE(Address, uint32) error
+	Read64BE(Address) (uint64, error)
+	Write64BE(Address, uint64) error
 }
+
+// VoidMemory is a dummy Memory implementation that returns a bus error. It is
+// used by the bus implementation for unmapped memory and this can aslo be used
+// as a quick scaffolding stub to implement memory types that support only a few
+// addressing modes.
+//
+type VoidMemory struct{}
+
+func (VoidMemory) Size() Address                          { return 0 }
+func (m VoidMemory) Page(Address, Address) Memory         { return m }
+func (VoidMemory) Read8(addr Address) (uint8, error)      { return 0, errBus(opRead, 1, addr) }
+func (VoidMemory) Write8(addr Address, v uint8) error     { return errBus(opWrite, 1, addr) }
+func (VoidMemory) Read16LE(addr Address) (uint16, error)  { return 0, errBus(opRead, 2, addr) }
+func (VoidMemory) Write16LE(addr Address, v uint16) error { return errBus(opWrite, 2, addr) }
+func (VoidMemory) Read32LE(addr Address) (uint32, error)  { return 0, errBus(opRead, 4, addr) }
+func (VoidMemory) Write32LE(addr Address, v uint32) error { return errBus(opWrite, 4, addr) }
+func (VoidMemory) Read64LE(addr Address) (uint64, error)  { return 0, errBus(opRead, 8, addr) }
+func (VoidMemory) Write64LE(addr Address, v uint64) error { return errBus(opWrite, 8, addr) }
+func (VoidMemory) Read16BE(addr Address) (uint16, error)  { return 0, errBus(opRead, 2, addr) }
+func (VoidMemory) Write16BE(addr Address, v uint16) error { return errBus(opWrite, 2, addr) }
+func (VoidMemory) Read32BE(addr Address) (uint32, error)  { return 0, errBus(opRead, 4, addr) }
+func (VoidMemory) Write32BE(addr Address, v uint32) error { return errBus(opWrite, 4, addr) }
+func (VoidMemory) Read64BE(addr Address) (uint64, error)  { return 0, errBus(opRead, 8, addr) }
+func (VoidMemory) Write64BE(addr Address, v uint64) error { return errBus(opWrite, 8, addr) }

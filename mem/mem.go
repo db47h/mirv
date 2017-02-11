@@ -21,28 +21,126 @@
 // Package mem implements memory.
 package mem
 
-import "github.com/db47h/mirv"
+import (
+	"encoding/binary"
+	"errors"
+
+	"github.com/db47h/mirv"
+)
 
 type memory []uint8
 
-func (m memory) Size() mirv.Address {
-	return mirv.Address(len(m))
-}
-
-func (m memory) Get(addr mirv.Address) []uint8 {
-	return m[addr:]
-}
-
-func (m memory) Page(addr, size mirv.Address) mirv.Memory {
-	if addr == 0 && size <= mirv.Address(len(m)) {
-		return m
-	}
-	return m[addr : addr+size]
-
-}
+var errPage = errors.New("Cross page memory access")
 
 // New returns a new memory block of the requested size.
 //
 func New(size mirv.Address) mirv.Memory {
-	return make(memory, size)
+	m := make(memory, size)
+	return &m
+}
+
+func (m *memory) Size() mirv.Address {
+	return mirv.Address(len(*m))
+}
+
+func (m *memory) Page(addr, size mirv.Address) mirv.Memory {
+	if addr == 0 && size <= mirv.Address(len(*m)) {
+		return m
+	}
+	n := (*m)[addr : addr+size]
+	return &n
+}
+
+func (m *memory) Read8(addr mirv.Address) (uint8, error) {
+	if len(*m)-int(addr) < 1 {
+		return 0, errPage
+	}
+	return (*m)[addr], nil
+}
+func (m *memory) Write8(addr mirv.Address, v uint8) error {
+	if len(*m)-int(addr) < 1 {
+		return errPage
+	}
+	(*m)[addr] = v
+	return nil
+}
+
+func (m *memory) Read16LE(addr mirv.Address) (uint16, error) {
+	if len(*m)-int(addr) < 2 {
+		return 0, errPage
+	}
+	return binary.LittleEndian.Uint16((*m)[addr:]), nil
+}
+func (m *memory) Write16LE(addr mirv.Address, v uint16) error {
+	if len(*m)-int(addr) < 2 {
+		return errPage
+	}
+	binary.LittleEndian.PutUint16((*m)[addr:], v)
+	return nil
+}
+func (m *memory) Read32LE(addr mirv.Address) (uint32, error) {
+	if len(*m)-int(addr) < 4 {
+		return 0, errPage
+	}
+	return binary.LittleEndian.Uint32((*m)[addr:]), nil
+}
+func (m *memory) Write32LE(addr mirv.Address, v uint32) error {
+	if len(*m)-int(addr) < 4 {
+		return errPage
+	}
+	binary.LittleEndian.PutUint32((*m)[addr:], v)
+	return nil
+}
+func (m *memory) Read64LE(addr mirv.Address) (uint64, error) {
+	if len(*m)-int(addr) < 8 {
+		return 0, errPage
+	}
+	return binary.LittleEndian.Uint64((*m)[addr:]), nil
+}
+func (m *memory) Write64LE(addr mirv.Address, v uint64) error {
+	if len(*m)-int(addr) < 8 {
+		return errPage
+	}
+	binary.LittleEndian.PutUint64((*m)[addr:], v)
+	return nil
+}
+
+func (m *memory) Read16BE(addr mirv.Address) (uint16, error) {
+	if len(*m)-int(addr) < 2 {
+		return 0, errPage
+	}
+	return binary.BigEndian.Uint16((*m)[addr:]), nil
+}
+func (m *memory) Write16BE(addr mirv.Address, v uint16) error {
+	if len(*m)-int(addr) < 2 {
+		return errPage
+	}
+	binary.BigEndian.PutUint16((*m)[addr:], v)
+	return nil
+}
+func (m *memory) Read32BE(addr mirv.Address) (uint32, error) {
+	if len(*m)-int(addr) < 4 {
+		return 0, errPage
+	}
+	return binary.BigEndian.Uint32((*m)[addr:]), nil
+}
+func (m *memory) Write32BE(addr mirv.Address, v uint32) error {
+	if len(*m)-int(addr) < 4 {
+		return errPage
+	}
+	binary.BigEndian.PutUint32((*m)[addr:], v)
+	return nil
+}
+func (m *memory) Read64BE(addr mirv.Address) (uint64, error) {
+	if len(*m)-int(addr) < 8 {
+		return 0, errPage
+	}
+	return binary.BigEndian.Uint64((*m)[addr:]), nil
+}
+func (m *memory) Write64BE(addr mirv.Address, v uint64) error {
+	if len(*m)-int(addr) < 8 {
+		return errPage
+	}
+	binary.BigEndian.PutUint64((*m)[addr:], v)
+	return nil
 }

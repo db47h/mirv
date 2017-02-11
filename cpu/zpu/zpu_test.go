@@ -3,7 +3,6 @@ package zpu_test
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/db47h/mirv"
 	"github.com/db47h/mirv/cpu/zpu"
@@ -116,10 +115,50 @@ func TestISA(t *testing.T) {
 	}
 }
 
+// Dummy UART. Just intercepts read/writes to MMIO.
+// A proper implementation should run in a separate goroutine.
+//
+type uart struct {
+	mirv.VoidMemory
+
+	txReady byte
+	txData  byte
+
+	buf []byte
+}
+
+func (u *uart) Size() mirv.Address { return 1 << 12 }
+func (u *uart) Page(addr, size mirv.Address) mirv.Memory {
+	if size > 1<<12 {
+		panic("cannot split")
+	}
+	return u
+}
+func (u *uart) Read32BE(addr mirv.Address) (uint32, error) {
+	if addr != 0xC {
+		return u.VoidMemory.Read32BE(addr)
+	}
+	return uint32(u.txReady)<<8 | uint32(u.txData), nil
+}
+func (u *uart) Write32BE(addr mirv.Address, v uint32) error {
+	if addr != 0xC {
+		return u.VoidMemory.Write32BE(addr, v)
+	}
+	u.txData = byte(v)
+	u.txReady = byte(v >> 8)
+	if u.txReady == 0 {
+		u.buf = append(u.buf, u.txData)
+		u.txData = 0
+		u.txReady = 1
+	}
+	return nil
+}
+
 func TestNew(t *testing.T) {
+	uart := uart{txReady: 1}
 	b := sys.NewBus(1<<12, 1<<8)
 	b.Map(0, mem.New(1<<16), sys.MemRAM) // 64KiB
-	b.Map(0x080A0000, mem.New(1<<12), sys.MemIO)
+	b.Map(0x080A0000, &uart, sys.MemIO)
 
 	arch, entry, err := elf.Load(b, "testdata/hello.elf", false)
 	if err != nil {
@@ -139,49 +178,14 @@ func TestNew(t *testing.T) {
 		}
 	}()
 
-	// Dummy UART. The newlib implementation of outbyte() does a direct write to
-	// IO mem and our bus implementation dos not enable read/write hijacking, so
-	// we need to do something bad. TODO: FIX THIS!
-	var buf []byte
-	var uartDone = make(chan struct{})
-	b.Write32BE(0x080A000C, 0x100) // tx ready
-
-	go func(done <-chan struct{}) {
-		// we start with 0x080A000C == 0x100 (tx ready)
-		// outbyte(byteVal) does a Write32BE(0x080A000C, byteVal)
-		t := time.NewTicker(time.Second / (19200 / 8))
-		for {
-			select {
-			case <-t.C:
-				c, _ := b.Read16BE(0x080A000C + 2)
-				if c&0x100 != 0 {
-					// nothing written, skip this tick
-					continue
-				}
-				// read until we get the same value twice
-				for cc, _ := b.Read16BE(0x080A000C + 2); cc != c; c = cc {
-				}
-				// xmit
-				buf = append(buf, byte(c))
-				// clear byte
-				_ = b.Write8(0x080A000C+3, 0)
-				// tx ready
-				_ = b.Write8(0x080A000C+2, 1)
-			case <-done:
-				t.Stop()
-				return
-			}
-		}
-	}(uartDone)
-
 	z.Step(2000000)
+	// ts := time.Now()
+	// cycles := z.Step(2000000)
+	// d := time.Now().Sub(ts)
+	// t.Logf("%d cycles / %v -- MIPS: %.3f", cycles, d, (float64(cycles)/1000000.0)/d.Seconds())
 
-	// wait for the UART to read the last byte
-	time.Sleep(2 * time.Second / (19200 / 8))
-	close(uartDone)
-
-	if string(buf) != "Hello, World!" {
-		t.Fatalf("Expected \"Hello, World!\", got %q", buf)
+	if string(uart.buf) != "Hello, World!" {
+		t.Fatalf("Expected \"Hello, World!\", got %q", uart.buf)
 	}
-	t.Logf("ZPU says: %s", buf)
+	t.Logf("ZPU says: %s", uart.buf)
 }

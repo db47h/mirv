@@ -23,38 +23,14 @@
 package sys
 
 import (
-	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/db47h/mirv"
 )
 
+var nilMemory = mirv.VoidMemory{}
+
 type tag mirv.Address
-
-//go:generate stringer -type busOp "$GOFILE"
-type busOp int
-
-const (
-	opRead busOp = iota
-	opWrite
-)
-
-// ErrBus wraps a bus error.
-//
-type ErrBus struct {
-	op   busOp
-	sz   uint8
-	addr mirv.Address
-}
-
-func errBus(op busOp, size uint8, addr mirv.Address) *ErrBus {
-	return &ErrBus{op: op, sz: size, addr: addr}
-}
-
-func (e *ErrBus) Error() string {
-	return fmt.Sprintf("bus error: %v/%d @ address %x", e.op, e.sz, e.addr)
-}
 
 type cacheEntry struct {
 	tag tag
@@ -78,14 +54,7 @@ type typedMem struct {
 	t MemType
 }
 
-// nilMemory dummy mirv.Memory implementation that returns bus error
-type nilMemory struct{}
-
-func (nilMemory) Size() mirv.Address                         { return 0 }
-func (nilMemory) Get(mirv.Address) []uint8                   { return nil }
-func (n nilMemory) Page(addr, size mirv.Address) mirv.Memory { return n }
-
-// Bus is a simplistic system bus. The current implementation only provides
+// Bus is a simplistic memory bus. The current implementation only provides
 // guest <-> host memory mapping and helper functions for reading and writing
 // data with different byte orders.
 //
@@ -152,7 +121,7 @@ func NewBus(pageSize mirv.Address, cacheSize uint) *Bus {
 	}
 
 	// prefill cache
-	ne := cacheEntry{^tag(0), nilMemory{}}
+	ne := cacheEntry{^tag(0), nilMemory}
 	for i := range bus.cache {
 		bus.cache[i] = ne
 	}
@@ -208,7 +177,7 @@ func (b *Bus) Unmap(addr mirv.Address, n int) {
 		t := b.tag(a)
 		i := t & b.pnm
 		if e := b.cache[i]; e.tag == t {
-			b.cache[i].tag, b.cache[i].m = ^tag(0), nilMemory{}
+			b.cache[i].tag, b.cache[i].m = ^tag(0), nilMemory
 		}
 		delete(b.pages, t)
 	}
@@ -262,154 +231,91 @@ func (b *Bus) Memory(addr mirv.Address) mirv.Memory {
 		b.cache[i].tag, b.cache[i].m = tag, m
 		return m
 	}
-	return nilMemory{}
+	return nilMemory
 }
 
 // Read8 reads the uint8 value from the memory mapped at address addr.
 //
 func (b *Bus) Read8(addr mirv.Address) (uint8, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 1 {
-		return 0, errBus(opRead, 1, addr)
-	}
-	return d[0], nil
+	return b.Memory(addr).Read8(addr & b.pom)
 }
 
 // Write8 writes the uint8 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write8(addr mirv.Address, v uint8) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 1 {
-		return errBus(opWrite, 1, addr)
-	}
-	d[0] = v
-	return nil
+	return b.Memory(addr).Write8(addr&b.pom, v)
 }
 
 // Read16LE reads the little endian uint16 value from the memory mapped at address addr.
 //
 func (b *Bus) Read16LE(addr mirv.Address) (uint16, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 2 {
-		return 0, errBus(opRead, 2, addr)
-	}
-	return binary.LittleEndian.Uint16(d), nil
+	return b.Memory(addr).Read16LE(addr & b.pom)
 }
 
 // Read32LE reads the little endian uint16 value from the memory mapped at address addr.
 //
 func (b *Bus) Read32LE(addr mirv.Address) (uint32, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 4 {
-		return 0, errBus(opRead, 4, addr)
-	}
-	return binary.LittleEndian.Uint32(d), nil
+	return b.Memory(addr).Read32LE(addr & b.pom)
 }
 
 // Read64LE reads the little endian uint16 valuefrom the memory mapped  at address addr.
 //
 func (b *Bus) Read64LE(addr mirv.Address) (uint64, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 8 {
-		return 0, errBus(opRead, 8, addr)
-	}
-	return binary.LittleEndian.Uint64(d), nil
+	return b.Memory(addr).Read64LE(addr & b.pom)
 }
 
 // Write16LE writes the little endian uint16 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write16LE(addr mirv.Address, v uint16) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 2 {
-		return errBus(opWrite, 2, addr)
-	}
-	binary.LittleEndian.PutUint16(d, v)
-	return nil
+	return b.Memory(addr).Write16LE(addr&b.pom, v)
 }
 
 // Write32LE writes the little endian uint32 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write32LE(addr mirv.Address, v uint32) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 4 {
-		return errBus(opWrite, 4, addr)
-	}
-	binary.LittleEndian.PutUint32(d, v)
-	return nil
+	return b.Memory(addr).Write32LE(addr&b.pom, v)
 }
 
 // Write64LE writes the little endian uint64 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write64LE(addr mirv.Address, v uint64) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 8 {
-		return errBus(opWrite, 8, addr)
-	}
-	binary.LittleEndian.PutUint64(d, v)
-	return nil
+	return b.Memory(addr).Write64LE(addr&b.pom, v)
 }
 
 // Read16BE reads the big endian uint16 value from the memory mapped at address addr.
 //
 func (b *Bus) Read16BE(addr mirv.Address) (uint16, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 2 {
-		return 0, errBus(opRead, 2, addr)
-	}
-	return binary.BigEndian.Uint16(d), nil
+	return b.Memory(addr).Read16BE(addr & b.pom)
 }
 
 // Read32BE reads the big endian uint16 value from the memory mapped at address addr.
 //
 func (b *Bus) Read32BE(addr mirv.Address) (uint32, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 4 {
-		return 0, errBus(opRead, 4, addr)
-	}
-	return binary.BigEndian.Uint32(d), nil
+	return b.Memory(addr).Read32BE(addr & b.pom)
 }
 
 // Read64BE reads the big endian uint16 valuefrom the memory mapped  at address addr.
 //
 func (b *Bus) Read64BE(addr mirv.Address) (uint64, error) {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 8 {
-		return 0, errBus(opRead, 8, addr)
-	}
-	return binary.BigEndian.Uint64(d), nil
+	return b.Memory(addr).Read64BE(addr & b.pom)
 }
 
 // Write16BE writes the big endian uint16 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write16BE(addr mirv.Address, v uint16) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 2 {
-		return errBus(opWrite, 2, addr)
-	}
-	binary.BigEndian.PutUint16(d, v)
-	return nil
+	return b.Memory(addr).Write16BE(addr&b.pom, v)
 }
 
 // Write32BE writes the big endian uint32 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write32BE(addr mirv.Address, v uint32) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 4 {
-		return errBus(opWrite, 4, addr)
-	}
-	binary.BigEndian.PutUint32(d, v)
-	return nil
+	return b.Memory(addr).Write32BE(addr&b.pom, v)
 }
 
 // Write64BE writes the big endian uint64 value v to the memory mapped at address addr.
 //
 func (b *Bus) Write64BE(addr mirv.Address, v uint64) error {
-	d := b.Memory(addr).Get(addr & b.pom)
-	if len(d) < 8 {
-		return errBus(opWrite, 8, addr)
-	}
-	binary.BigEndian.PutUint64(d, v)
-	return nil
+	return b.Memory(addr).Write64BE(addr&b.pom, v)
 }
 
 type busWriter struct {
@@ -417,38 +323,30 @@ type busWriter struct {
 	b    *Bus
 }
 
-// func (w *busWriter) Seek(offset int64, whence int) (int64, error) {
-// 	switch whence {
-// 	case io.SeekStart:
-// 		w.addr = mirv.Address(offset)
-// 	case io.SeekCurrent:
-// 		w.addr += mirv.Address(offset)
-// 	case io.SeekEnd:
-// 		w.addr = ^mirv.Address(0) - mirv.Address(offset) + 1 // TODO: probably wrong
-// 	}
-// 	return int64(w.addr), nil
-// }
-
 func (w *busWriter) Write(p []byte) (n int, err error) {
-	var page []uint8
-	var pp int
-	for _, b := range p {
-		if pp >= len(page) {
-			page = w.b.Memory(w.addr).Get(w.addr & w.b.pom)
-			pp = 0
-			if len(page) == 0 {
+	var (
+		b                = w.b
+		page mirv.Memory = b.Memory(w.addr)
+		tag              = b.tag(w.addr)
+	)
+	for _, c := range p {
+		if t := b.tag(w.addr); t != tag {
+			page = w.b.Memory(w.addr)
+			if page.Size() == 0 {
 				return n, io.EOF
 			}
+			tag = t
 		}
-		page[pp] = b
-		pp++
+		if err := page.Write8(w.addr&w.b.pom, c); err != nil {
+			return n, io.EOF
+		}
 		w.addr++
 		n++
 	}
 	return n, nil
 }
 
-// Writer returns an io.Writer to the addressable memory.
+// Writer returns an io.Writer to the mapped memory starting at addr.
 //
 func (b *Bus) Writer(addr mirv.Address) io.Writer {
 	return &busWriter{addr, b}

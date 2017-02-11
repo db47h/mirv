@@ -33,7 +33,7 @@ func TestBus_Map(t *testing.T) {
 		t.Fatalf("Wrong cache size: %d, expected %d", len(b.cache), 1<<8)
 	}
 	for i := range b.cache {
-		if _, ok := b.cache[i].m.(nilMemory); !ok {
+		if _, ok := b.cache[i].m.(mirv.VoidMemory); !ok {
 			t.Fatalf("Unexpected cache entry %d: %T", i, b.cache[i].m)
 		}
 	}
@@ -48,14 +48,14 @@ func TestBus_Map(t *testing.T) {
 		t.Fatal(err)
 	}
 	// test various methods of getting back our value
-	if v8 = r.Get(psz)[0]; v8 != 42 {
-		t.Errorf("r.Get returned %d", v8)
+	if v8, err = r.Read8(psz); err != nil || v8 != 42 {
+		t.Errorf("r.Read8 returned %v, %d", err, v8)
 	}
-	if v8 = r.Page(psz, psz).Get(0)[0]; v8 != 42 {
-		t.Errorf("Sub-page Get returned %d", v8)
+	if v8, err = r.Page(psz, psz).Read8(0); err != nil || v8 != 42 {
+		t.Errorf("Sub-page Read8 returned %v, %d", err, v8)
 	}
-	if v8 = b.Memory(ta).Get(0)[0]; v8 != 42 {
-		t.Errorf("Memory returned %d", v8)
+	if v8, err = b.Memory(ta).Read8(0); err != nil || v8 != 42 {
+		t.Errorf("Memory.Read8 returned %v, %d", err, v8)
 	}
 
 	// check cache
@@ -109,9 +109,9 @@ func ExampleBus_Range() {
 	b.Map(0x00001000, rIO, MemIO)
 	b.Map(0x80000000, rIO, MemIO)
 	l, h := b.MappedRange(MemRAM)
-	fmt.Printf("RAM: %X - %X\n", l, h)
+	fmt.Printf("RAM: 0x%X - 0x%X\n", l, h)
 	l, h = b.MappedRange(MemIO)
-	fmt.Printf("IO : %X - %X\n", l, h)
+	fmt.Printf("IO : 0x%X - 0x%X\n", l, h)
 
 	// now map the last 2 pages
 	addr := 0 - pageSize*2
@@ -119,12 +119,12 @@ func ExampleBus_Range() {
 	// here MemRange will return a high value of 0
 	// because of 2 complement arithmetic.
 	l, h = b.MappedRange(MemRAM)
-	fmt.Printf("RAM: %X - %X\n", l, h)
+	fmt.Printf("RAM: 0x%X - 0x%X\n", l, h)
 
 	// Output:
-	// RAM: 0x5000 0x40100000
-	// IO : 0x1000 0x80004000
-	// RAM: 0x5000 0
+	// RAM: 0x5000 - 0x40100000
+	// IO : 0x1000 - 0x80004000
+	// RAM: 0x5000 - 0x0
 }
 
 type testData struct {
