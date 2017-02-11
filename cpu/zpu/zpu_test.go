@@ -139,9 +139,9 @@ func TestNew(t *testing.T) {
 		}
 	}()
 
-	// Dummy UART. The newlib implementation does not use IRQs
-	// and our bus implementation dos not enable read/write hijacking,
-	// so we need to do something bad. TODO: FIX THIS!
+	// Dummy UART. The newlib implementation of outbyte() does a direct write to
+	// IO mem and our bus implementation dos not enable read/write hijacking, so
+	// we need to do something bad. TODO: FIX THIS!
 	var buf []byte
 	var uartDone = make(chan struct{})
 	b.Write32BE(0x080A000C, 0x100) // tx ready
@@ -155,7 +155,7 @@ func TestNew(t *testing.T) {
 			case <-t.C:
 				c, _ := b.Read16BE(0x080A000C + 2)
 				if c&0x100 != 0 {
-					// nothing written skip this tick
+					// nothing written, skip this tick
 					continue
 				}
 				// read until we get the same value twice
