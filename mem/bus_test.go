@@ -1,4 +1,4 @@
-package sys
+package mem
 
 import (
 	"fmt"
@@ -6,14 +6,13 @@ import (
 	"testing/quick"
 
 	"github.com/db47h/mirv"
-	"github.com/db47h/mirv/mem"
 )
 
 const psz = 1 << 12
 
 func TestBus_Map(t *testing.T) {
 	b := NewBus(psz, 1<<8)
-	r := mem.New(psz * 2)
+	r := New(psz * 2)
 	const ba = 4242 << 20
 	// 12 bits page size + 8 bits cache size => 20 bits addressable through cache
 	b.Map(ba, r, MemRAM)
@@ -33,7 +32,7 @@ func TestBus_Map(t *testing.T) {
 		t.Fatalf("Wrong cache size: %d, expected %d", len(b.cache), 1<<8)
 	}
 	for i := range b.cache {
-		if _, ok := b.cache[i].m.(mirv.VoidMemory); !ok {
+		if _, ok := b.cache[i].m.(VoidMemory); !ok {
 			t.Fatalf("Unexpected cache entry %d: %T", i, b.cache[i].m)
 		}
 	}
@@ -68,7 +67,7 @@ func TestBus_Map(t *testing.T) {
 // test paging
 func TestBus_Map_overlap(t *testing.T) {
 	b := NewBus(psz, 1<<8)
-	r := mem.New(psz * 2)
+	r := New(psz * 2)
 	b.Map(0, r, MemRAM)
 	b.Map(psz*2, r, MemRAM) // map again at a different memory location
 	for i := mirv.Address(0); i < psz*2; i += 8 {
@@ -100,11 +99,11 @@ func TestBus_Map_overlap(t *testing.T) {
 func ExampleBus_Range() {
 	var pageSize mirv.Address = 0x1000 // 4096
 	b := NewBus(pageSize, 8)
-	r256 := mem.New(pageSize * 256)
-	r2 := mem.New(pageSize * 2)
+	r256 := New(pageSize * 256)
+	r2 := New(pageSize * 2)
 	b.Map(0x40000000, r256, MemRAM)
 	b.Map(0x00005000, r2, MemRAM)
-	rIO := mem.New(pageSize * 4)
+	rIO := New(pageSize * 4)
 	b.Map(0x10000000, rIO, MemIO)
 	b.Map(0x00001000, rIO, MemIO)
 	b.Map(0x80000000, rIO, MemIO)
@@ -153,7 +152,7 @@ var tdLE = [...]testData{
 
 func TestBigEndian(t *testing.T) {
 	b := NewBus(psz, 1<<10)
-	r := mem.New(2*psz + 2)
+	r := New(2*psz + 2)
 
 	b.Map(psz, r, MemRAM) // map after the first page
 
@@ -216,7 +215,7 @@ func TestBigEndian(t *testing.T) {
 
 func TestLittleEndian(t *testing.T) {
 	b := NewBus(psz, 1<<10)
-	r := mem.New(2*psz + 2)
+	r := New(2*psz + 2)
 
 	b.Map(psz, r, MemRAM) // map after the first page
 

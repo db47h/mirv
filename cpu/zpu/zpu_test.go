@@ -8,7 +8,6 @@ import (
 	"github.com/db47h/mirv/cpu/zpu"
 	"github.com/db47h/mirv/elf"
 	"github.com/db47h/mirv/mem"
-	"github.com/db47h/mirv/sys"
 )
 
 type data struct {
@@ -48,9 +47,9 @@ var td = [...]data{
 }
 
 func check(name string, pc interface{}, sp interface{}, tos uint32) error {
-	b := sys.NewBus(1<<12, 1<<8)
-	b.Map(0, mem.New(1<<20), sys.MemRAM)
-	b.Map(1<<20, mem.New(1<<12), sys.MemIO)
+	b := mem.NewBus(1<<12, 1<<8)
+	b.Map(0, mem.New(1<<20), mem.MemRAM)
+	b.Map(1<<20, mem.New(1<<12), mem.MemIO)
 	for i := mirv.Address(1 << 20); i < mirv.Address(1<<20+1<<12); i += 4 {
 		err := b.Write32BE(i, 0xDEADBEEF)
 		if err != nil {
@@ -119,7 +118,7 @@ func TestISA(t *testing.T) {
 // A proper implementation should run in a separate goroutine.
 //
 type uart struct {
-	mirv.VoidMemory
+	mem.VoidMemory
 
 	txReady byte
 	txData  byte
@@ -156,9 +155,9 @@ func (u *uart) Write32BE(addr mirv.Address, v uint32) error {
 
 func TestNew(t *testing.T) {
 	uart := uart{txReady: 1}
-	b := sys.NewBus(1<<12, 1<<8)
-	b.Map(0, mem.New(1<<16), sys.MemRAM) // 64KiB
-	b.Map(0x080A0000, &uart, sys.MemIO)
+	b := mem.NewBus(1<<12, 1<<8)
+	b.Map(0, mem.New(1<<16), mem.MemRAM) // 64KiB
+	b.Map(0x080A0000, &uart, mem.MemIO)
 
 	arch, entry, err := elf.Load(b, "testdata/hello.elf", false)
 	if err != nil {

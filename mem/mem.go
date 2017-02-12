@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package mem implements memory.
 package mem
 
 import (
@@ -27,6 +26,47 @@ import (
 
 	"github.com/db47h/mirv"
 )
+
+// Type indicates the type of mapped memory.
+//
+type Type uint16
+
+// Memory type values.
+//
+const (
+	MemRAM Type = iota
+	MemIO
+)
+
+// wrapper to track memory type
+type typedMem struct {
+	m mirv.Memory
+	t Type
+}
+
+// VoidMemory is a dummy Memory implementation that returns a bus error. It is
+// used by the bus implementation for unmapped memory and this can aslo be used
+// as a quick scaffolding stub to implement memory types that support only a few
+// addressing modes.
+//
+type VoidMemory struct{}
+
+func (VoidMemory) Size() mirv.Address                            { return 0 }
+func (m VoidMemory) Page(mirv.Address, mirv.Address) mirv.Memory { return m }
+func (VoidMemory) Read8(addr mirv.Address) (uint8, error)        { return 0, errBus(opRead, 1, addr) }
+func (VoidMemory) Write8(addr mirv.Address, v uint8) error       { return errBus(opWrite, 1, addr) }
+func (VoidMemory) Read16LE(addr mirv.Address) (uint16, error)    { return 0, errBus(opRead, 2, addr) }
+func (VoidMemory) Write16LE(addr mirv.Address, v uint16) error   { return errBus(opWrite, 2, addr) }
+func (VoidMemory) Read32LE(addr mirv.Address) (uint32, error)    { return 0, errBus(opRead, 4, addr) }
+func (VoidMemory) Write32LE(addr mirv.Address, v uint32) error   { return errBus(opWrite, 4, addr) }
+func (VoidMemory) Read64LE(addr mirv.Address) (uint64, error)    { return 0, errBus(opRead, 8, addr) }
+func (VoidMemory) Write64LE(addr mirv.Address, v uint64) error   { return errBus(opWrite, 8, addr) }
+func (VoidMemory) Read16BE(addr mirv.Address) (uint16, error)    { return 0, errBus(opRead, 2, addr) }
+func (VoidMemory) Write16BE(addr mirv.Address, v uint16) error   { return errBus(opWrite, 2, addr) }
+func (VoidMemory) Read32BE(addr mirv.Address) (uint32, error)    { return 0, errBus(opRead, 4, addr) }
+func (VoidMemory) Write32BE(addr mirv.Address, v uint32) error   { return errBus(opWrite, 4, addr) }
+func (VoidMemory) Read64BE(addr mirv.Address) (uint64, error)    { return 0, errBus(opRead, 8, addr) }
+func (VoidMemory) Write64BE(addr mirv.Address, v uint64) error   { return errBus(opWrite, 8, addr) }
 
 type memory []uint8
 

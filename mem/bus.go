@@ -18,40 +18,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package sys provides basic system components.
+// Package mem provides basic memory components.
 //
-package sys
+package mem
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/db47h/mirv"
 )
 
-var nilMemory = mirv.VoidMemory{}
+//go:generate stringer -type busOp bus.go mem.go
+type busOp int
+
+const (
+	opRead busOp = iota
+	opWrite
+)
+
+// ErrBus wraps a bus error.
+//
+type ErrBus struct {
+	op   busOp
+	sz   uint8
+	addr mirv.Address
+}
+
+func errBus(op busOp, size uint8, addr mirv.Address) *ErrBus {
+	return &ErrBus{op: op, sz: size, addr: addr}
+}
+
+func (e *ErrBus) Error() string {
+	return fmt.Sprintf("bus error: %v/%d @ address %x", e.op, e.sz, e.addr)
+}
+
+var nilMemory = VoidMemory{}
 
 type tag mirv.Address
 
 type cacheEntry struct {
 	tag tag
 	m   mirv.Memory
-}
-
-// MemType indicates the type of mapped memory.
-//
-type MemType uint16
-
-// Memory type values.
-//
-const (
-	MemRAM MemType = iota
-	MemIO
-)
-
-// wrapper to track memory type
-type typedMem struct {
-	m mirv.Memory
-	t MemType
 }
 
 // Bus is a simplistic memory bus. The current implementation only provides
@@ -146,7 +154,7 @@ func (b *Bus) PageSize() mirv.Address {
 // The memType parameter does not affect the page mapping in any way. It only
 // serves as a differentiator for the MappedRange method.
 //
-func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType MemType) {
+func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType Type) {
 	if addr&b.pom != 0 {
 		panic("Address must be page-aligned")
 	}
@@ -193,7 +201,7 @@ func (b *Bus) Unmap(addr mirv.Address, n int) {
 // The purpose of this function is to ease setup of some CPUs that default some registers
 // to start or end of memory.
 //
-func (b *Bus) MappedRange(t MemType) (low, high mirv.Address) {
+func (b *Bus) MappedRange(t Type) (low, high mirv.Address) {
 	low = ^mirv.Address(0)
 	for tag, m := range b.pages {
 		if m.t != t {

@@ -25,7 +25,7 @@ package zpu
 import (
 	"github.com/db47h/mirv"
 	"github.com/db47h/mirv/cpu"
-	"github.com/db47h/mirv/sys"
+	"github.com/db47h/mirv/mem"
 )
 
 type opcode uint8
@@ -64,7 +64,7 @@ const (
 // State holds the state for a ZPU instance
 //
 type State struct {
-	b      *sys.Bus
+	b      *mem.Bus
 	pc     mirv.Address
 	sp     mirv.Address
 	idim   bool
@@ -73,7 +73,7 @@ type State struct {
 
 // New instantiates a new ZPU and returns its interface.
 //
-func New(b *sys.Bus) cpu.Interface {
+func New(b *mem.Bus) cpu.Interface {
 	z := State{
 		b: b,
 	}
@@ -85,7 +85,7 @@ func New(b *sys.Bus) cpu.Interface {
 //
 func (s *State) Reset() {
 	s.pc = 0
-	_, e := s.b.MappedRange(sys.MemRAM)
+	_, e := s.b.MappedRange(mem.MemRAM)
 	s.sp = e
 	s.idim = false
 	s.halted = false

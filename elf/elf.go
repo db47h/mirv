@@ -36,7 +36,6 @@ import (
 
 	"github.com/db47h/mirv"
 	"github.com/db47h/mirv/mem"
-	"github.com/db47h/mirv/sys"
 )
 
 // Class corresponds to ELF Header.Ident[EI_CLASS] and Header.Class.
@@ -112,7 +111,7 @@ func (zeroReader) Read(p []byte) (n int, err error) {
 // alloc allocates and maps memory @addr with the given size.
 // it allocates only the necessary pages.
 //
-func alloc(b *sys.Bus, addr, size mirv.Address) {
+func alloc(b *mem.Bus, addr, size mirv.Address) {
 	ps := b.PageSize()
 	pm := ps - 1
 	// adjust addr & size
@@ -132,7 +131,7 @@ func alloc(b *sys.Bus, addr, size mirv.Address) {
 		// look for next mapped page
 		for cur = start + ps; b.Memory(cur).Size() == 0 && cur != end; cur += ps {
 		}
-		b.Map(start, mem.New(cur-start), sys.MemRAM)
+		b.Map(start, mem.New(cur-start), mem.MemRAM)
 	}
 }
 
@@ -152,7 +151,7 @@ func alloc(b *sys.Bus, addr, size mirv.Address) {
 //
 // Only statically linked executables are supported.
 //
-func Load(bus *sys.Bus, name string, autoAlloc bool) (arch Arch, entry mirv.Address, err error) {
+func Load(bus *mem.Bus, name string, autoAlloc bool) (arch Arch, entry mirv.Address, err error) {
 	f, err := self.Open(name)
 	if err != nil {
 		return Arch{}, 0, err

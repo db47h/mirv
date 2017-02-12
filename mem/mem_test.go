@@ -5,11 +5,10 @@ import (
 
 	"github.com/db47h/mirv"
 	"github.com/db47h/mirv/mem"
-	"github.com/db47h/mirv/sys"
 )
 
 type testData struct {
-	f   func(*sys.Bus, mirv.Address) error
+	f   func(*mem.Bus, mirv.Address) error
 	r8  uint8
 	r16 uint16
 	r32 uint32
@@ -19,15 +18,15 @@ type testData struct {
 const psz = 1 << 12
 
 // var tdBE = [...]testData{
-// 	{func(b *sys.Bus, addr mirv.Address) error { return b.Write64BE(addr, 0) }, 0, 0, 0, 0}, // do not remove this one, it clears AND checks for cross-page boundary errors
-// 	{func(b *sys.Bus, addr mirv.Address) error { return b.Write8(addr, 42) }, 42, 42 << 8, 42 << 24, 42 << 56},
-// 	{func(b *sys.Bus, addr mirv.Address) error { return b.Write16BE(addr, 0xbeef) }, 0xbe, 0xbeef, 0xbeef << 16, 0xbeef << 48},
-// 	{func(b *sys.Bus, addr mirv.Address) error { return b.Write32BE(addr, 0xdeadbeef) }, 0xde, 0xdead, 0xdeadbeef, 0xdeadbeef << 32},
-// 	{func(b *sys.Bus, addr mirv.Address) error { return b.Write64BE(addr, 0xbadc0feedeadbeef) }, 0xba, 0xbadc, 0xbadc0fee, 0xbadc0feedeadbeef},
+// 	{func(b *mem.Bus, addr mirv.Address) error { return b.Write64BE(addr, 0) }, 0, 0, 0, 0}, // do not remove this one, it clears AND checks for cross-page boundary errors
+// 	{func(b *mem.Bus, addr mirv.Address) error { return b.Write8(addr, 42) }, 42, 42 << 8, 42 << 24, 42 << 56},
+// 	{func(b *mem.Bus, addr mirv.Address) error { return b.Write16BE(addr, 0xbeef) }, 0xbe, 0xbeef, 0xbeef << 16, 0xbeef << 48},
+// 	{func(b *mem.Bus, addr mirv.Address) error { return b.Write32BE(addr, 0xdeadbeef) }, 0xde, 0xdead, 0xdeadbeef, 0xdeadbeef << 32},
+// 	{func(b *mem.Bus, addr mirv.Address) error { return b.Write64BE(addr, 0xbadc0feedeadbeef) }, 0xba, 0xbadc, 0xbadc0fee, 0xbadc0feedeadbeef},
 // }
 
 // func TestBigEndianRAM(t *testing.T) {
-// 	b := sys.NewBus(psz, 1<<10)
+// 	b := mem.NewBus(psz, 1<<10)
 // 	r := mem.BigEndianRAM(2*psz + 2)
 
 // 	b.Map(psz, r.Pages(psz)...) // map after the first page
@@ -94,8 +93,8 @@ const psz = 1 << 12
 
 func BenchmarkBus_Write64(b *testing.B) {
 	r := mem.New(psz)
-	bus := sys.NewBus(psz, 1<<8)
-	bus.Map(0, r, sys.MemRAM)
+	bus := mem.NewBus(psz, 1<<8)
+	bus.Map(0, r, mem.MemRAM)
 	for i := 0; i < b.N; i++ {
 		if err := bus.Write64LE(0, 12345); err != nil {
 			b.Fatal(err)
