@@ -32,7 +32,7 @@ func TestBus_Map(t *testing.T) {
 		t.Fatalf("Wrong cache size: %d, expected %d", len(b.cache), 1<<8)
 	}
 	for i := range b.cache {
-		if _, ok := b.cache[i].m.(VoidMemory); !ok {
+		if _, ok := b.cache[i].m.(NoMemory); !ok {
 			t.Fatalf("Unexpected cache entry %d: %T", i, b.cache[i].m)
 		}
 	}

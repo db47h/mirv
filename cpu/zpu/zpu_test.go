@@ -118,7 +118,7 @@ func TestISA(t *testing.T) {
 // A proper implementation should run in a separate goroutine.
 //
 type uart struct {
-	mem.VoidMemory
+	mem.NoMemory
 
 	txReady byte
 	txData  byte
@@ -135,13 +135,13 @@ func (u *uart) Page(addr, size mirv.Address) mirv.Memory {
 }
 func (u *uart) Read32BE(addr mirv.Address) (uint32, error) {
 	if addr != 0xC {
-		return u.VoidMemory.Read32BE(addr)
+		return u.NoMemory.Read32BE(addr)
 	}
 	return uint32(u.txReady)<<8 | uint32(u.txData), nil
 }
 func (u *uart) Write32BE(addr mirv.Address, v uint32) error {
 	if addr != 0xC {
-		return u.VoidMemory.Write32BE(addr, v)
+		return u.NoMemory.Write32BE(addr, v)
 	}
 	u.txData = byte(v)
 	u.txReady = byte(v >> 8)

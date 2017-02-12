@@ -53,7 +53,7 @@ func (e *ErrBus) Error() string {
 	return fmt.Sprintf("bus error: %v/%d @ address %x", e.op, e.sz, e.addr)
 }
 
-var nilMemory = VoidMemory{}
+var nilMemory = NoMemory{}
 
 type tag mirv.Address
 
