@@ -46,24 +46,30 @@ var td = [...]data{
 	{"swap", nil, top - 4, 0xBEEFDEAD},
 }
 
+type memIO struct {
+	mem.Interface
+}
+
+func (memIO) Type() mem.Type { return mem.MemIO }
+
 func check(name string, pc interface{}, sp interface{}, tos uint32) error {
-	b := mem.NewBus(1<<12, 1<<8)
-	b.Map(0, mem.New(1<<20), mem.MemRAM)
-	b.Map(1<<20, mem.New(1<<12), mem.MemIO)
+	var b mem.Bus
+	z := zpu.New(&b)
+	b.Map(0, mem.NewRAM(1<<20, z.ByteOrder()))
+	b.Map(1<<20, memIO{mem.NewRAM(1<<12, z.ByteOrder())})
 	for i := mirv.Address(1 << 20); i < mirv.Address(1<<20+1<<12); i += 4 {
-		err := b.Write32BE(i, 0xDEADBEEF)
+		err := b.Write32(i, 0xDEADBEEF)
 		if err != nil {
 			panic(err)
 		}
 	}
-	z := zpu.New(b)
 	z.Reset()
 
 	var err error
 	var entry mirv.Address
 
 	if name != "" {
-		_, entry, err = elf.Load(b, "testdata/"+name+".elf", false)
+		_, entry, err = elf.Load(&b, "testdata/"+name+".elf", false)
 		if err != nil {
 			return err
 		}
@@ -94,7 +100,7 @@ func check(name string, pc interface{}, sp interface{}, tos uint32) error {
 		}
 	}
 
-	t, err := b.Read32BE(z.SP())
+	t, err := b.Read32(z.SP())
 	if err != nil {
 		return fmt.Errorf("error while reading SP @ %08X: %v", z.SP(), err)
 	}
@@ -127,21 +133,20 @@ type uart struct {
 }
 
 func (u *uart) Size() mirv.Address { return 1 << 12 }
-func (u *uart) Page(addr, size mirv.Address) mirv.Memory {
-	if size > 1<<12 {
-		panic("cannot split")
-	}
-	return u
-}
-func (u *uart) Read32BE(addr mirv.Address) (uint32, error) {
+func (*uart) Type() mem.Type       { return mem.MemIO }
+
+// override only 32 bits read/writes. The binary does not make 8 bit accesses,
+// so we do not have to care about endianness.
+func (u *uart) Read32(addr mirv.Address) (uint32, error) {
 	if addr != 0xC {
-		return u.NoMemory.Read32BE(addr)
+		return u.NoMemory.Read32(addr)
 	}
 	return uint32(u.txReady)<<8 | uint32(u.txData), nil
 }
-func (u *uart) Write32BE(addr mirv.Address, v uint32) error {
+
+func (u *uart) Write32(addr mirv.Address, v uint32) error {
 	if addr != 0xC {
-		return u.NoMemory.Write32BE(addr, v)
+		return u.NoMemory.Write32(addr, v)
 	}
 	u.txData = byte(v)
 	u.txReady = byte(v >> 8)
@@ -154,19 +159,19 @@ func (u *uart) Write32BE(addr mirv.Address, v uint32) error {
 }
 
 func TestNew(t *testing.T) {
-	uart := uart{txReady: 1}
-	b := mem.NewBus(1<<12, 1<<8)
-	b.Map(0, mem.New(1<<16), mem.MemRAM) // 64KiB
-	b.Map(0x080A0000, &uart, mem.MemIO)
+	uart := uart{txReady: 1, buf: make([]byte, 0, 1024)}
+	var b mem.Bus
+	z := zpu.New(&b)
+	b.Map(0, mem.NewRAM(1<<16, z.ByteOrder())) // 64KiB
+	b.Map(0x080A0000, &uart)
 
-	arch, entry, err := elf.Load(b, "testdata/hello.elf", false)
+	arch, entry, err := elf.Load(&b, "testdata/hello.elf", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if arch.Machine != elf.MachineZPU {
 		t.Fatalf("Unexpected arch %v", arch)
 	}
-	z := zpu.New(b)
 	z.Reset()
 	z.SetPC(entry)
 

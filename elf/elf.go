@@ -39,12 +39,16 @@ import (
 )
 
 // Class corresponds to ELF Header.Ident[EI_CLASS] and Header.Class.
+//
 type Class byte
 
 // Data corresponds to ELF Header.Ident[EI_DATA] and Header.Data.
+// The raw values have the same semantics as mirv.ByteOrder
+//
 type Data byte
 
 // Machine corresponds to ELF Header.Machine.
+//
 type Machine uint16
 
 //go:generate stringer -type Class "$GOFILE"
@@ -108,33 +112,6 @@ func (zeroReader) Read(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// alloc allocates and maps memory @addr with the given size.
-// it allocates only the necessary pages.
-//
-func alloc(b *mem.Bus, addr, size mirv.Address) {
-	ps := b.PageSize()
-	pm := ps - 1
-	// adjust addr & size
-	size += addr & pm
-	size = (size + pm) & ^pm
-	addr &= ^pm
-	var start, cur, end mirv.Address = 0, addr, addr + size
-
-	// Try to allocate in large chunks instead of allocating page by page.
-	for cur != end {
-		// look for first unmapped page
-		for start = cur; b.Memory(start).Size() != 0 && start != end; start += ps {
-		}
-		if start == end {
-			break
-		}
-		// look for next mapped page
-		for cur = start + ps; b.Memory(cur).Size() == 0 && cur != end; cur += ps {
-		}
-		b.Map(start, mem.New(cur-start), mem.MemRAM)
-	}
-}
-
 // Load loads an ELF file and returns the architecture, start address and error
 // if any. If the autoAlloc parameter is true, guest memory will automatically
 // be allocated and mapped in the guest's address space.
@@ -176,10 +153,12 @@ func Load(bus *mem.Bus, name string, autoAlloc bool) (arch Arch, entry mirv.Addr
 		r := p.Open()
 		n := int64(p.Filesz)
 		if n < 0 || int64(p.Memsz) < 0 {
-			panic("ELF file too large")
+			panic("ELF program segment too large")
 		}
 		if autoAlloc {
-			alloc(bus, mirv.Address(p.Paddr), mirv.Address(p.Memsz))
+			if err := bus.Map(mirv.Address(p.Paddr), mem.NewRAM(mirv.Address(p.Memsz), mirv.ByteOrder(f.Data))); err != nil {
+				return arch, entry, err
+			}
 		}
 		w := bus.Writer(mirv.Address(p.Paddr))
 		n, err := io.CopyN(w, r, int64(p.Filesz))

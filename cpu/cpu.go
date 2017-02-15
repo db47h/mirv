@@ -27,9 +27,27 @@ import "github.com/db47h/mirv"
 // Interface wraps the methods for a CPU.
 //
 type Interface interface {
-	Reset()                   // Initialize the CPU to a known initial state.
-	Step(n uint64) uint64     // Step the simulation forward n cycles.
-	SetPC(newPC mirv.Address) // set the PC to the given address.
-	PC() mirv.Address         // returns the current Program Counter.
-	SP() mirv.Address         // returns the current stack pointer.
+	mirv.ByteOrdered
+
+	// Initialize the CPU to a known initial state. This function must be
+	// explicitly called before calling Step for the first time.
+	//
+	Reset()
+
+	// Step the simulation forward n cycles. Returns the number of cycles elapsed.
+	// This function may return early in some cases (like a HALT or breakpoint instruction).
+	//
+	Step(n uint64) uint64
+
+	// SetPC set the Program Counter register to the given address.
+	//
+	SetPC(newPC mirv.Address)
+
+	// PC returns the current value of the Program Counter register.
+	//
+	PC() mirv.Address
+
+	// SP returns the current value of the Stack Pointer register.
+	//
+	SP() mirv.Address
 }

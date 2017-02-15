@@ -9,10 +9,10 @@ import (
 
 func TestLoad(t *testing.T) {
 	var err error
-	b := mem.NewBus(1<<12, 1<<13)
+	var b mem.Bus
 	// Do not pre-allocate memory. The ELF loader will do it for us.
 
-	arch, entry, err := elf.Load(b, "testdata/hello.riscv", true)
+	arch, entry, err := elf.Load(&b, "testdata/hello.riscv", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,16 +27,16 @@ func TestLoad(t *testing.T) {
 	if arch.Class == elf.Class32 {
 		var x uint32
 		if arch.Data == elf.DataLittle {
-			x, err = b.Read32LE(entry)
+			x, err = b.Read32(entry)
 		} else {
-			x, err = b.Read32BE(entry)
+			x, err = b.Read32(entry)
 		}
 		v = uint64(x)
 	} else {
 		if arch.Data == elf.DataLittle {
-			v, err = b.Read64LE(entry)
+			v, err = b.Read64(entry)
 		} else {
-			v, err = b.Read64BE(entry)
+			v, err = b.Read64(entry)
 		}
 	}
 	if err != nil {

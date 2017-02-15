@@ -18,18 +18,23 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package mem provides basic memory components.
-//
 package mem
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/db47h/mirv"
 )
 
-//go:generate stringer -type busOp bus.go mem.go
+var (
+	errOverlap     = errors.New("memory block overlap")
+	errOverflow    = errors.New("memory block overflows address space")
+	errNoMemoryMap = errors.New("no memory mapped")
+)
+
+//go:generate stringer -type busOp .
 type busOp int
 
 const (
@@ -53,277 +58,273 @@ func (e *ErrBus) Error() string {
 	return fmt.Sprintf("bus error: %v/%d @ address %x", e.op, e.sz, e.addr)
 }
 
-var nilMemory = NoMemory{}
+var nilMemory = &block{
+	s: ^mirv.Address(0),
+	e: 0,
+	m: NoMemory{},
+}
 
-type tag mirv.Address
+type block struct {
+	s, e mirv.Address
+	m    Interface
+}
 
-type cacheEntry struct {
-	tag tag
-	m   mirv.Memory
+func (b *block) overlaps(blk *block) bool {
+	return blk.s >= b.s && blk.s <= b.e || b.s >= blk.s && b.s <= blk.e
+}
+
+func (b *block) contains(addr mirv.Address) bool {
+	return b != nil && addr <= b.e && addr >= b.s
 }
 
 // Bus is a simplistic memory bus. The current implementation only provides
 // guest <-> host memory mapping and helper functions for reading and writing
 // data with different byte orders.
 //
-// Mapped memory is split into pages. Read and writes do not need to be aligned
-// but cannot cross page boundaries. i.e. with a page size of 4096 bytes, trying
-// to read a uint64 at address 4095 will result in a bus error. This should be
-// of no consequence where the simulated CPU does not support unaligned
-// read/writes, but extra steps must be taken with others.
+// Read and writes do not need to be aligned but cannot cross block boundaries.
+// For example:
+//
+//	var b Bus
+//	// map 2 x 32KiB RAM blocks at addresses 0 and 0x8000 respectively.
+//	b.Map(0x0000, mem.NewRAM(0x8000))
+//	b.Map(0x8000, mem.NewRAM(0x8000))
+//	u16, err := b.Read16LE(0x0001) // OK: unaligned but all bytes are in first block
+//	u16, err = b.Read16LE(0x7FFF) // Will return an error: both bytes are in different blocks
+//
+// Bus keeps mapped blocks of memory in a slice. When doing guest->host address
+// resolution, it does a binary search for the corresponding interface in that
+// slice. In order to improve up performance, if also keeps a reference to a
+// "preferred" memory block that will always be checked first. This preferred
+// memory block is by default the first mapped block, and can also be set by the
+// user by calling the Preferred method.
 //
 type Bus struct {
-	sz   mirv.Address // page size
-	bits uint8        // bit count of page part in address
-	pom  mirv.Address // page offset mask
-	pnm  tag          // page number mask
-
-	pages map[tag]*typedMem
-	cache []cacheEntry
+	b []*block
+	p *block // preferred mem block
 }
 
-// NewBus creates a new bus configured with the given parameters.
+//go:generate go run bus_gen.go -o bus_rw.go
+
+// Map maps a memory block starting at addr to the given Interface. Map
+// returns a non nil error if the block is block already mapped, overlaps with
+// another mapped block or if addr+m.Size() is greater than the maximum value of
+// mirv.Address.
 //
-// pageSize is the page size in bytes. It must be an exponent of 2 and should
-// match at least the simulated CPU's minimum natural page size. A typical page
-// size is 4096 bytes.
-//
-// Internally, mapped memory pages are kept in a hash map. In order to speed up
-// address-to-Memory-interface lookups, recent lookups are kept in a cache (that
-// works like a MMU). cacheSize is an exponent of 2 value that determines the
-// number of entries in this cache.
-//
-// The total size of memory that is addressable without costly map lookups is
-// cacheSize * pageSize bytes. For best performance, it is advisable to keep
-// this value equal to the amount of real memory available to the simulated CPU.
-// Each entry in the cache is 24 bytes long (plus 16 bytes for memory slices) on
-// a 64 bits host. That's an overhead of about 1% for a typical page size of
-// 4096 bytes. Simulations that require large amounts of memory might want to
-// use larger page sizes in order to compensate for the overhead of a large
-// cache.
-//
-func NewBus(pageSize mirv.Address, cacheSize uint) *Bus {
-	if pageSize == 0 || pageSize&(pageSize-1) != 0 {
-		panic("Page size must be an exponent of 2.")
+func (b *Bus) Map(addr mirv.Address, m Interface) error {
+	if m.Size() == 0 {
+		return nil
 	}
-	if cacheSize == 0 || cacheSize&(cacheSize-1) != 0 {
-		panic("Cache size must be an exponent of 2.")
+	end := addr + (m.Size() - 1)
+	if end < addr {
+		return errOverflow
 	}
-	// count bits
-	const _m = ^mirv.Address(0)
-	var b uint8 = 8 << (_m>>8&1 + _m>>16&1 + _m>>32&1) // (1 << log₂(_m)) * 8 = addr bits
-	s, b := b<<1, b-1
-	for x := pageSize; s > 0; s >>= 1 {
-		if y := x << s; y != 0 {
-			b -= s
-			x = y
+	return b.insert(&block{
+		s: addr,
+		e: end,
+		m: m,
+	})
+}
+
+func (b *Bus) insertIdx(blk *block) int {
+	var l, h = 0, len(b.b)
+	for l != h {
+		i := l + (h-l)/2 // == (l+h)/2 without overflow
+		bi := b.b[i]
+		if blk.overlaps(bi) {
+			return -1
+		}
+		if bi.s > blk.s {
+			h = i
+		} else {
+			l = i + 1
 		}
 	}
-	bus := &Bus{
-		sz:    pageSize,
-		bits:  b,
-		pom:   pageSize - 1,
-		pnm:   tag(cacheSize) - 1,
-		pages: make(map[tag]*typedMem),
-		cache: make([]cacheEntry, cacheSize),
-	}
-
-	// prefill cache
-	ne := cacheEntry{^tag(0), nilMemory}
-	for i := range bus.cache {
-		bus.cache[i] = ne
-	}
-	return bus
+	return l
 }
 
-func (b *Bus) tag(addr mirv.Address) tag {
-	return tag(addr >> b.bits)
+func (b *Bus) insert(blk *block) error {
+	if len(b.b) == 0 && b.p == nil {
+		b.p = blk
+		return nil
+	}
+	i := b.insertIdx(blk)
+	if b.p != nil && blk.overlaps(b.p) || i < 0 {
+		return errOverlap
+	}
+	b.b = append(b.b, nil)
+	copy(b.b[i+1:], b.b[i:])
+	b.b[i] = blk
+	return nil
 }
 
-// PageSize returns the configured page size.
+// Preferred sets the preferred memory block. When resolving guest to host
+// addresses, the memory block containing addr will be checked first.
 //
-func (b *Bus) PageSize() mirv.Address {
-	return b.sz
+func (b *Bus) Preferred(addr mirv.Address) {
+	if b.p.contains(addr) {
+		return
+	}
+	o := b.findIdx(addr)
+	// Unmapped, don't touch anything.
+	if o < 0 {
+		// TODO: panic, error?
+		return
+	}
+	if b.p == nil {
+		b.p = b.b[o]
+		copy(b.b[o:], b.b[o+1:])
+		b.b = b.b[:len(b.b)-1]
+		return
+	}
+	i := b.insertIdx(b.p)
+	var t *block
+	t, b.p = b.p, b.b[o]
+	if i < o {
+		// shift right
+		copy(b.b[i+1:], b.b[i:o])
+	} else if i > o {
+		// shift left
+		copy(b.b[o:], b.b[o+1:i])
+		i--
+	}
+	b.b[i] = t
 }
 
-// Map maps a the memory pages starting at addr to the given Memory interfaces.
-// Map panics if a page is already mapped or if the address is not page-aligned.
+// Remap maps or remaps the memory block containing the given address. If the given
+// address is already mapped, attempt .
 //
-// Use the Memory method to check if a given address is mapped.
+// Remap panics if the size of the new memory Interface is too large to fit.
 //
-// The memType parameter does not affect the page mapping in any way. It only
-// serves as a differentiator for the MappedRange method.
+// This function is meant to help implement the brk/sbrk syscalls and dynamic
+// memory bank swapping.
 //
-func (b *Bus) Map(addr mirv.Address, m mirv.Memory, memType Type) {
-	if addr&b.pom != 0 {
-		panic("Address must be page-aligned")
+func (b *Bus) Remap(addr mirv.Address, m Interface) error {
+	if b.p.contains(addr) {
+		return nil
+	}
+	i := b.findIdx(addr)
+	if i < 0 {
+		return b.Map(addr, m)
 	}
 
-	pages := m.Size() >> b.bits
-	for i, pa := mirv.Address(0), addr; i < pages; i++ {
-		tag := b.tag(pa)
-		if b.pages[tag] != nil {
-			panic("Address already mapped")
+	blk := b.b[i]
+	end := addr + (m.Size() - 1)
+	if s := m.Size(); s > blk.m.Size() && i < len(b.b)-1 {
+		if end >= b.b[i+1].s {
+			return errOverlap
 		}
-		b.pages[tag] = &typedMem{m: m.Page(pa-addr, b.sz), t: memType}
-		n := pa + b.sz
-		if n <= addr {
-			if i == pages-1 {
-				// we've just mapped the last page, and nothing more to mapm all is good.
-				break
-			}
-			panic("Page mapping past end of addressable memory.")
-		}
-		pa = n
 	}
-}
-
-// Unmap unmaps n pages starting at the given address.
-//
-func (b *Bus) Unmap(addr mirv.Address, n int) {
-	for i, a := n, addr; a >= addr && i > 0; i, a = i-1, a+b.sz {
-		t := b.tag(a)
-		i := t & b.pnm
-		if e := b.cache[i]; e.tag == t {
-			b.cache[i].tag, b.cache[i].m = ^tag(0), nilMemory
-		}
-		delete(b.pages, t)
-	}
+	blk.m = m
+	blk.e = end
+	return nil
 }
 
 // MappedRange reports the largest addressable range [low, high) for the given
 // memory type. i.e. only the memory addresses low and high-1 are guaranteed to
-// be mapped, but there may be unmapped pages in between.
+// be mapped, but there may be unmapped addresses in between.
 //
 // As a result of 2-complement arithmetic, the high address may be 0 if the
 // highest memory address is mapped.
 //
-// The purpose of this function is to ease setup of some CPUs that default some registers
-// to start or end of memory.
+// The only case where this funtion returns a non nil error is when there is no
+// mapped memory of the requested type.
 //
-func (b *Bus) MappedRange(t Type) (low, high mirv.Address) {
+// The purpose of this function is to ease setup of some CPUs that default some
+// registers to start or end of memory.
+//
+func (b *Bus) MappedRange(t Type) (low, high mirv.Address, err error) {
+	var ok bool // true if low/high have changed
 	low = ^mirv.Address(0)
-	for tag, m := range b.pages {
-		if m.t != t {
+	if blk := b.p; blk != nil && blk.m.Type() == t {
+		low = blk.s
+		high = blk.e
+		ok = true
+	}
+
+	for _, blk := range b.b {
+		if blk.m.Type() != t {
 			continue
 		}
-		tag := mirv.Address(tag << b.bits)
-		if tag < low {
-			low = tag
+		ok = true
+		if blk.s < low {
+			low = blk.s
 		}
-		if end := tag + b.sz - 1; end > high {
-			high = end
+		if blk.e > high {
+			high = blk.e
 		}
 	}
-	return low, high + 1
+
+	if ok {
+		return low, high + 1, nil
+	}
+	return 0, 0, errNoMemoryMap
 }
 
-// Memory returns the Memory interface mapped to address addr. If the address is
-// not mapped, it returns a 0 sized Memory interface:
+// Memory returns the base address and memory Interface mapped to address addr.
+// If the address is not mapped, it returns a 0 sized Memory interface:
 //
-//	m := bus.Memory(addr)
+//	base, m := bus.Memory(addr)
 //	if m.Size() == 0 {
 //		// addr is not mapped
 //		// ...
 //	}
+//	log.Printf("0x%X is in a %d bytes block mapped at 0x%X", addr, m.Size(), base)
 //
-//
-func (b *Bus) Memory(addr mirv.Address) mirv.Memory {
-	tag := b.tag(addr)
-	i := tag & b.pnm
-	if e := b.cache[i]; e.tag == tag {
-		return e.m
+func (b *Bus) Memory(addr mirv.Address) (mirv.Address, Interface) {
+	if len(b.b) == 0 {
+		return 0, nilMemory.m
 	}
-	if m := b.pages[tag]; m != nil {
-		m := m.m
-		b.cache[i].tag, b.cache[i].m = tag, m
-		return m
+	e := b.memory(addr)
+	return e.s, e.m
+}
+
+// findIdx returns the index if the block containing addr. If not found, returns
+// -1. It does not check b.p.
+//
+func (b *Bus) findIdx(addr mirv.Address) int {
+	for bb, l := b.b, len(b.b); l > 0; l = len(bb) {
+		i := l / 2
+		blk := bb[i]
+		if blk.s > addr {
+			bb = bb[:i]
+			continue
+		}
+		if blk.e < addr {
+			bb = bb[i+1:]
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
+// find returns the *block containing addr or nilMemory if not found. Does not
+// check b.p.
+//
+func (b *Bus) find(addr mirv.Address) *block {
+	for bb, l := b.b, len(b.b); l > 0; l = len(bb) {
+		i := l / 2
+		blk := bb[i]
+		if blk.s > addr {
+			bb = bb[:i]
+			continue
+		}
+		if blk.e < addr {
+			bb = bb[i+1:]
+			continue
+		}
+		return blk
 	}
 	return nilMemory
 }
 
-// Read8 reads the uint8 value from the memory mapped at address addr.
+// memory finds the *block containing addr. Does check b.p.
 //
-func (b *Bus) Read8(addr mirv.Address) (uint8, error) {
-	return b.Memory(addr).Read8(addr & b.pom)
-}
-
-// Write8 writes the uint8 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write8(addr mirv.Address, v uint8) error {
-	return b.Memory(addr).Write8(addr&b.pom, v)
-}
-
-// Read16LE reads the little endian uint16 value from the memory mapped at address addr.
-//
-func (b *Bus) Read16LE(addr mirv.Address) (uint16, error) {
-	return b.Memory(addr).Read16LE(addr & b.pom)
-}
-
-// Read32LE reads the little endian uint16 value from the memory mapped at address addr.
-//
-func (b *Bus) Read32LE(addr mirv.Address) (uint32, error) {
-	return b.Memory(addr).Read32LE(addr & b.pom)
-}
-
-// Read64LE reads the little endian uint16 valuefrom the memory mapped  at address addr.
-//
-func (b *Bus) Read64LE(addr mirv.Address) (uint64, error) {
-	return b.Memory(addr).Read64LE(addr & b.pom)
-}
-
-// Write16LE writes the little endian uint16 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write16LE(addr mirv.Address, v uint16) error {
-	return b.Memory(addr).Write16LE(addr&b.pom, v)
-}
-
-// Write32LE writes the little endian uint32 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write32LE(addr mirv.Address, v uint32) error {
-	return b.Memory(addr).Write32LE(addr&b.pom, v)
-}
-
-// Write64LE writes the little endian uint64 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write64LE(addr mirv.Address, v uint64) error {
-	return b.Memory(addr).Write64LE(addr&b.pom, v)
-}
-
-// Read16BE reads the big endian uint16 value from the memory mapped at address addr.
-//
-func (b *Bus) Read16BE(addr mirv.Address) (uint16, error) {
-	return b.Memory(addr).Read16BE(addr & b.pom)
-}
-
-// Read32BE reads the big endian uint16 value from the memory mapped at address addr.
-//
-func (b *Bus) Read32BE(addr mirv.Address) (uint32, error) {
-	return b.Memory(addr).Read32BE(addr & b.pom)
-}
-
-// Read64BE reads the big endian uint16 valuefrom the memory mapped  at address addr.
-//
-func (b *Bus) Read64BE(addr mirv.Address) (uint64, error) {
-	return b.Memory(addr).Read64BE(addr & b.pom)
-}
-
-// Write16BE writes the big endian uint16 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write16BE(addr mirv.Address, v uint16) error {
-	return b.Memory(addr).Write16BE(addr&b.pom, v)
-}
-
-// Write32BE writes the big endian uint32 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write32BE(addr mirv.Address, v uint32) error {
-	return b.Memory(addr).Write32BE(addr&b.pom, v)
-}
-
-// Write64BE writes the big endian uint64 value v to the memory mapped at address addr.
-//
-func (b *Bus) Write64BE(addr mirv.Address, v uint64) error {
-	return b.Memory(addr).Write64BE(addr&b.pom, v)
+func (b *Bus) memory(addr mirv.Address) *block {
+	if b.p.contains(addr) {
+		return b.p
+	}
+	return b.find(addr)
 }
 
 type busWriter struct {
@@ -333,19 +334,16 @@ type busWriter struct {
 
 func (w *busWriter) Write(p []byte) (n int, err error) {
 	var (
-		b                = w.b
-		page mirv.Memory = b.Memory(w.addr)
-		tag              = b.tag(w.addr)
+		b   = w.b
+		blk = b.memory(w.addr)
+		m   = blk.m
 	)
 	for _, c := range p {
-		if t := b.tag(w.addr); t != tag {
-			page = w.b.Memory(w.addr)
-			if page.Size() == 0 {
-				return n, io.EOF
-			}
-			tag = t
+		if w.addr > blk.e {
+			blk = b.memory(w.addr)
+			m = blk.m
 		}
-		if err := page.Write8(w.addr&w.b.pom, c); err != nil {
+		if err := m.Write8(w.addr-blk.s, c); err != nil {
 			return n, io.EOF
 		}
 		w.addr++
@@ -355,6 +353,9 @@ func (w *busWriter) Write(p []byte) (n int, err error) {
 }
 
 // Writer returns an io.Writer to the mapped memory starting at addr.
+//
+// Unlike the Bus Read/Write methods, the returned writer can write
+// across several memory blocks as long as they are contiguous.
 //
 func (b *Bus) Writer(addr mirv.Address) io.Writer {
 	return &busWriter{addr, b}

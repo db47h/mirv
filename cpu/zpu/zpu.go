@@ -77,15 +77,21 @@ func New(b *mem.Bus) cpu.Interface {
 	z := State{
 		b: b,
 	}
-	z.Reset()
 	return &z
 }
+
+// ByteOrder returns mirv.BigEndian
+//
+func (*State) ByteOrder() mirv.ByteOrder { return mirv.BigEndian }
 
 // Reset resets the ZPU to a known inital state.
 //
 func (s *State) Reset() {
 	s.pc = 0
-	_, e := s.b.MappedRange(mem.MemRAM)
+	_, e, err := s.b.MappedRange(mem.MemRAM)
+	if err != nil {
+		panic(err)
+	}
 	s.sp = e
 	s.idim = false
 	s.halted = false
@@ -133,14 +139,14 @@ func (s *State) read8(addr mirv.Address) uint8 {
 }
 
 func (s *State) write32(addr mirv.Address, v uint32) {
-	err := s.b.Write32BE(addr, v)
+	err := s.b.Write32(addr, v)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func (s State) read32(addr mirv.Address) uint32 {
-	v, err := s.b.Read32BE(addr)
+	v, err := s.b.Read32(addr)
 	if err != nil {
 		panic(err)
 	}
