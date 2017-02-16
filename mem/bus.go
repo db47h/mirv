@@ -226,7 +226,7 @@ func (b *Bus) Remap(addr mirv.Address, m Interface) error {
 // As a result of 2-complement arithmetic, the high address may be 0 if the
 // highest memory address is mapped.
 //
-// The only case where this funtion returns a non nil error is when there is no
+// The only case where this function returns a non nil error is when there is no
 // mapped memory of the requested type.
 //
 // The purpose of this function is to ease setup of some CPUs that default some

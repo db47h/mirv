@@ -41,7 +41,7 @@ func (b *Bus) Write8(addr mirv.Address, v uint8) error {
 	if !blk.contains(addr) {
 		blk = b.find(addr)
 	}
-	return blk.m.Write8(addr - blk.s, v)
+	return blk.m.Write8(addr-blk.s, v)
 }
 
 // Read16 returns the 16 bits value at address addr.
@@ -61,7 +61,7 @@ func (b *Bus) Write16(addr mirv.Address, v uint16) error {
 	if !blk.contains(addr) {
 		blk = b.find(addr)
 	}
-	return blk.m.Write16(addr - blk.s, v)
+	return blk.m.Write16(addr-blk.s, v)
 }
 
 // Read32 returns the 32 bits value at address addr.
@@ -81,7 +81,7 @@ func (b *Bus) Write32(addr mirv.Address, v uint32) error {
 	if !blk.contains(addr) {
 		blk = b.find(addr)
 	}
-	return blk.m.Write32(addr - blk.s, v)
+	return blk.m.Write32(addr-blk.s, v)
 }
 
 // Read64 returns the 64 bits value at address addr.
@@ -101,6 +101,5 @@ func (b *Bus) Write64(addr mirv.Address, v uint64) error {
 	if !blk.contains(addr) {
 		blk = b.find(addr)
 	}
-	return blk.m.Write64(addr - blk.s, v)
+	return blk.m.Write64(addr-blk.s, v)
 }
-

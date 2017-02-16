@@ -75,10 +75,9 @@ func (b *Bus) Read{{.}}(addr mirv.Address) (uint{{.}}, error) {
 //
 func (b *Bus) Write{{.}}(addr mirv.Address, v uint{{.}}) error {
 	{{template "T1"}}
-	return blk.m.Write{{.}}(addr - blk.s, v)
+	return blk.m.Write{{.}}(addr-blk.s, v)
 }
-{{end}}
-`
+{{end}}`
 
 type data struct {
 	OD    string

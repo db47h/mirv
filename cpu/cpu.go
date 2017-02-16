@@ -30,7 +30,9 @@ type Interface interface {
 	mirv.ByteOrdered
 
 	// Initialize the CPU to a known initial state. This function must be
-	// explicitly called before calling Step for the first time.
+	// explicitly called before calling Step for the first time. Since most CPUs
+	// will examine the memory setup during Reset, it should only be called
+	// after all memory has been mapped.
 	//
 	Reset()
 

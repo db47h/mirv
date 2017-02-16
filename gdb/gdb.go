@@ -67,7 +67,7 @@ func StartGDBAgent(ctx context.Context, addr string, system interface{}) error {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
-				// TODO: need callback to notify caller that something bad happenned
+				// TODO: need callback to notify caller that something bad happened
 				// if callback != nil { callback(err) }
 				return
 			}

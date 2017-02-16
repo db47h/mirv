@@ -84,7 +84,7 @@ func New(b *mem.Bus) cpu.Interface {
 //
 func (*State) ByteOrder() mirv.ByteOrder { return mirv.BigEndian }
 
-// Reset resets the ZPU to a known inital state.
+// Reset resets the ZPU to a known initial state.
 //
 func (s *State) Reset() {
 	s.pc = 0

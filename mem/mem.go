@@ -76,7 +76,7 @@ type Interface interface {
 
 // NoMemory is a dummy Memory implementation that has a 0 size and returns a bus
 // error for any read or write. It is used by the bus implementation for
-// unmapped memory and can aslo be used as a quick scaffolding stub to implement
+// unmapped memory and can also be used as a quick scaffolding stub to implement
 // types that support only a few addressing modes (like IO devices).
 //
 type NoMemory struct{}
