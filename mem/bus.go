@@ -199,18 +199,24 @@ func (b *Bus) Preferred(addr mirv.Address) {
 // memory bank swapping.
 //
 func (b *Bus) Remap(addr mirv.Address, m Interface) error {
-	if b.p.contains(addr) {
-		return nil
-	}
-	i := b.findIdx(addr)
-	if i < 0 {
-		return b.Map(addr, m)
-	}
+	var next int
+	var blk = b.p
 
-	blk := b.b[i]
+	// find block and next block
+	if blk.contains(addr) {
+		next = b.insertIdx(blk)
+	} else {
+		i := b.findIdx(addr)
+		if i < 0 {
+			return b.Map(addr, m)
+		}
+		blk = b.b[i]
+		next = i + 1
+	}
+	// check size
 	end := addr + (m.Size() - 1)
-	if s := m.Size(); s > blk.m.Size() && i < len(b.b)-1 {
-		if end >= b.b[i+1].s {
+	if s := m.Size(); s > blk.m.Size() && next < len(b.b) {
+		if end >= b.b[next].s {
 			return errOverlap
 		}
 	}
